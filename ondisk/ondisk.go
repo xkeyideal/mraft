@@ -11,6 +11,7 @@ import (
 	"github.com/lni/dragonboat/v3"
 	"github.com/lni/dragonboat/v3/client"
 	"github.com/lni/dragonboat/v3/config"
+	"github.com/lni/dragonboat/v3/logger"
 )
 
 type OnDiskRaft struct {
@@ -26,6 +27,7 @@ type OnDiskRaft struct {
 }
 
 func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
+
 	return &OnDiskRaft{
 		RaftNodePeers:  peers,
 		RaftClusterIDs: clusterIDs,
@@ -41,6 +43,11 @@ func (disk *OnDiskRaft) Start(nodeID uint64) error {
 		"/Volumes/ST1000/",
 		"mraft-ondisk",
 		fmt.Sprintf("node%d", nodeID))
+
+	logger.GetLogger("raft").SetLevel(logger.ERROR)
+	logger.GetLogger("rsm").SetLevel(logger.WARNING)
+	logger.GetLogger("transport").SetLevel(logger.WARNING)
+	logger.GetLogger("grpc").SetLevel(logger.WARNING)
 
 	nhc := config.NodeHostConfig{
 		WALDir:         datadir,
