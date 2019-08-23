@@ -1,0 +1,51 @@
+{
+    "version": "2.0.0",
+    "command": "go",
+    "type": "shell",
+    "presentation" : { 
+        "reveal": "always"
+    },
+    "options":{
+        "cwd": "${fileDirname}"
+    },
+    "problemMatcher":[],
+    "tasks": [
+        {
+            "label": "run",
+            "options": {
+                "env": {
+                    "CGO_CFLAGS": "-I/usr/local/include/rocksdb",
+                    "CGO_LDFLAGS":"-L/usr/local/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4",
+                    "http_proxy": "",
+                    "https_proxy": "",
+                    "all_proxy": ""
+                }
+            },
+            "osx": {
+                "args": [
+                    "run",
+                    "${workspaceRoot}/app.go"
+                ]
+            }
+        },
+        {
+            "label": "build",
+            "options": {
+                "cwd": "${fileDirname}",
+                "env": {
+                    "CGO_CFLAGS": "-I/usr/local/include/rocksdb",
+                    "CGO_LDFLAGS":"-L/usr/local/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4",
+                    "http_proxy": "",
+                    "https_proxy": "",
+                    "all_proxy": ""
+                }
+            },
+            "args":[ 
+                "build",
+                "-v",
+                //"-x",
+                "."
+            ]
+        }
+    ]
+}
