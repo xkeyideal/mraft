@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mraft/store"
 	"path/filepath"
 	"sync"
 	"time"
@@ -21,7 +22,7 @@ type OnDiskRaft struct {
 	nodehost       *dragonboat.NodeHost
 	clusterSession map[uint64]*client.Session
 
-	kvs      chan *KvCmd
+	kvs      chan *store.Command
 	exitChan chan struct{}
 	wg       sync.WaitGroup
 }
@@ -32,7 +33,7 @@ func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
 		RaftNodePeers:  peers,
 		RaftClusterIDs: clusterIDs,
 		clusterSession: make(map[uint64]*client.Session),
-		kvs:            make(chan *KvCmd, 10),
+		kvs:            make(chan *store.Command, 10),
 		exitChan:       make(chan struct{}),
 		wg:             sync.WaitGroup{},
 	}
@@ -51,6 +52,7 @@ func (disk *OnDiskRaft) Start(nodeID uint64) error {
 	logger.GetLogger("dragonboat").SetLevel(logger.WARNING)
 
 	nhc := config.NodeHostConfig{
+		DeploymentID:   20,
 		WALDir:         datadir,
 		NodeHostDir:    datadir,
 		RTTMillisecond: 100,
@@ -93,7 +95,7 @@ func (disk *OnDiskRaft) start() {
 		case <-disk.exitChan:
 			goto exit
 		case kv := <-disk.kvs:
-			idx := fnv32(kv.Kv.Key) % uint32(len(disk.RaftClusterIDs))
+			idx := fnv32(kv.Key) % uint32(len(disk.RaftClusterIDs))
 			clusterID := disk.RaftClusterIDs[idx]
 			cs := disk.clusterSession[clusterID]
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -114,7 +116,7 @@ exit:
 	disk.wg.Done()
 }
 
-func (disk *OnDiskRaft) Write(kv *KvCmd) {
+func (disk *OnDiskRaft) Write(kv *store.Command) {
 	disk.kvs <- kv
 }
 

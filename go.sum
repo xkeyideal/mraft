@@ -1,3 +1,5 @@
+git.apache.org/thrift.git v0.12.0 h1:CMxsZlAmxKs+VAZMlDDL0wXciMblJcutQbEe3A9CYUM=
+git.apache.org/thrift.git v0.12.0/go.mod h1:fPE2ZNJGynbRyZ4dJvy6G277gSllfV2HJqblrnkyeyg=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/VictoriaMetrics/metrics v1.5.0 h1:WvQqPn+z9pR1U7J58CgaGiWrN8phNGSpr2xUSxJnfpE=
 github.com/VictoriaMetrics/metrics v1.5.0/go.mod h1:QZAL5yLaXvhSPeib0ahluGo9VK0HXDZHovKaKlpuWvs=
@@ -52,8 +54,16 @@ github.com/stretchr/testify v1.4.0 h1:2E4SXV/wtOkTonXsotYi4li6zVWxYlZuYNCXe9XRJy
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/tecbot/gorocksdb v0.0.0-20190705090504-162552197222 h1:FLimlAjzuhq8loeLX7lLhKKeUgpA/4slynlNVB/Qaks=
 github.com/tecbot/gorocksdb v0.0.0-20190705090504-162552197222/go.mod h1:ahpPrc7HpcfEWDQRZEmnXMzHY03mLDYMCxeDzy46i+8=
+github.com/thrift-iterator/go v0.0.0-20190402154806-9b5a67519118 h1:MIx5ElxAmfKzHGb3ptBbq9YE3weh55cH1Mb7VA4Oxbg=
+github.com/thrift-iterator/go v0.0.0-20190402154806-9b5a67519118/go.mod h1:60PRwE/TCI1UqLvn8v2pwAf6+yzTPLP/Ji5xaesWDqk=
 github.com/ugorji/go v1.1.4 h1:j4s+tAvLfL3bZyefP2SEWmhBzmuIlH/eqNuPdFPgngw=
 github.com/ugorji/go v1.1.4/go.mod h1:uQMGLiO92mf5W77hV/PUCpI3pbzQx3CRekS0kk+RGrc=
+github.com/v2pro/plz v0.0.0-20180227161703-2d49b86ea382 h1:SDwpMM36MwogjPMfRBmFy5koN6QC5NmdrXPxNRQZ6Ek=
+github.com/v2pro/plz v0.0.0-20180227161703-2d49b86ea382/go.mod h1:6xoYDIZTeCY25tlsJC/zNlCh84xCKwBSAXwKF32tdIg=
+github.com/v2pro/quokka v0.0.0-20171201153428-382cb39c6ee6 h1:hb7P11ytAQIcQ7Cq1uQBNTGgKQle7N+jsP4L72ooa7Q=
+github.com/v2pro/quokka v0.0.0-20171201153428-382cb39c6ee6/go.mod h1:0VP5W9AFNVWU8C1QLNeVg8TvzoEkIHWZ4vxtxEVFWUY=
+github.com/v2pro/wombat v0.0.0-20180402055224-a56dbdcddef2 h1:g9qBO/hKkIHxSkyt0/I7R51pFxzVO1tNIUEwhV2yJ28=
+github.com/v2pro/wombat v0.0.0-20180402055224-a56dbdcddef2/go.mod h1:wen8nMxrRrUmXnRwH+3wGAW+hyYTHcOrTNhMpxyp/i0=
 github.com/valyala/fastrand v1.0.0 h1:LUKT9aKer2dVQNUi3waewTbKV+7H17kvWFNKs2ObdkI=
 github.com/valyala/fastrand v1.0.0/go.mod h1:HWqCzkrkg6QXT8V2EXWvXCoow7vLwOFN002oeRzjapQ=
 github.com/valyala/histogram v1.0.1 h1:FzA7n2Tz/wKRMejgu3PV1vw3htAklTjjuoI6z3d4KDg=

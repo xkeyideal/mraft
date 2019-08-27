@@ -7,6 +7,8 @@
 .settings/
 tsconfig.json
 jsconfig.json
+idl/
+rpc/
 
 ### Linux ###
 *~
@@ -74,4 +76,3 @@ $RECYCLE.BIN/
 
 # End of https://www.gitignore.io/api/windows,osx,linux,code
 mraft
-test

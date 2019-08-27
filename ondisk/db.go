@@ -9,11 +9,9 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/lni/goutils/fileutil"
-	"github.com/tecbot/gorocksdb"
 )
 
 const (
@@ -21,83 +19,6 @@ const (
 	currentDBFilename  string = "current"
 	updatingDBFilename string = "current.updating"
 )
-
-type rocksdb struct {
-	mu     sync.RWMutex
-	db     *gorocksdb.DB
-	ro     *gorocksdb.ReadOptions
-	wo     *gorocksdb.WriteOptions
-	opts   *gorocksdb.Options
-	closed bool
-}
-
-func create(dbdir string) (*rocksdb, error) {
-	opts := gorocksdb.NewDefaultOptions()
-	opts.SetCreateIfMissing(true)
-	opts.SetUseFsync(true)
-
-	wo := gorocksdb.NewDefaultWriteOptions()
-	wo.SetSync(true)
-	ro := gorocksdb.NewDefaultReadOptions()
-
-	db, err := gorocksdb.OpenDb(opts, dbdir)
-	if err != nil {
-		return nil, err
-	}
-
-	return &rocksdb{
-		db:   db,
-		ro:   ro,
-		wo:   wo,
-		opts: opts,
-	}, nil
-}
-
-func (db *rocksdb) lookup(key []byte) ([]byte, error) {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	val, err := db.db.Get(db.ro, key)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer val.Free()
-
-	data := val.Data()
-
-	if len(data) == 0 {
-		return []byte(""), nil
-	}
-	v := make([]byte, len(data))
-	copy(v, data)
-	return v, nil
-}
-
-func (r *rocksdb) close() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.closed = true
-	if r.db != nil {
-		r.db.Close()
-	}
-
-	if r.opts != nil {
-		r.opts.Destroy()
-	}
-
-	if r.wo != nil {
-		r.wo.Destroy()
-	}
-
-	if r.ro != nil {
-		r.ro.Destroy()
-	}
-
-	r.db = nil
-}
 
 func isNewRun(dir string) bool {
 	fp := filepath.Join(dir, currentDBFilename)

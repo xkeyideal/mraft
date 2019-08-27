@@ -3,10 +3,10 @@ package ondisk
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mraft/store"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -16,25 +16,16 @@ import (
 )
 
 const (
-	appliedIndexKey string = "disk_kv_applied_index"
+	appliedIndexKey = "disk_kv_applied_index"
+	endSignal       = "mraft-end-signal"
 )
-
-type KvCmd struct {
-	Cmd string  `json:"cmd"`
-	Kv  KvStore `json:"kv"`
-}
-
-type KvStore struct {
-	Key string `json:"key"`
-	Val string `json:"val"`
-}
 
 type DiskKV struct {
 	clusterID uint64
 	nodeID    uint64
 
 	dbIndex     uint32
-	dbs         []*rocksdb
+	stores      []*store.Store
 	lastApplied uint64
 }
 
@@ -42,24 +33,19 @@ func NewDiskKV(cluserID uint64, nodeID uint64) sm.IOnDiskStateMachine {
 	return &DiskKV{
 		clusterID: cluserID,
 		nodeID:    nodeID,
-		dbs:       make([]*rocksdb, 2),
+		stores:    make([]*store.Store, 2),
 	}
 }
 
 func (d *DiskKV) queryAppliedIndex() (uint64, error) {
 	idx := atomic.LoadUint32(&d.dbIndex)
-	val, err := d.dbs[idx].db.Get(d.dbs[idx].ro, []byte(appliedIndexKey))
+
+	val, err := d.stores[idx].Lookup([]byte(appliedIndexKey))
 	if err != nil {
 		return 0, err
 	}
-	defer val.Free()
 
-	data := val.Data()
-	if len(data) == 0 {
-		return 0, nil
-	}
-
-	return strconv.ParseUint(string(data), 10, 64)
+	return strconv.ParseUint(string(val), 10, 64)
 }
 
 func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {
@@ -97,14 +83,14 @@ func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 			}
 		}
 
-		db, err := create(dbdir)
+		store, err := store.NewStore(dbdir)
 		if err != nil {
 			return 0, err
 		}
 
 		d.dbIndex = 0
 
-		d.dbs[d.dbIndex] = db
+		d.stores[d.dbIndex] = store
 		appliedIndex, err := d.queryAppliedIndex()
 		if err != nil {
 			return 0, err
@@ -116,37 +102,33 @@ func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 	}
 }
 
+// Update 与 LookUp, SaveSnapshot的调用是并发安全的
 func (d *DiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 
 	if len(ents) == 0 {
 		return ents, nil
 	}
 
-	appliedIndex, err := d.queryAppliedIndex()
-	if err != nil {
-		return ents, err
-	}
-
 	wb := gorocksdb.NewWriteBatch()
 	defer wb.Destroy()
 
 	for index, entry := range ents {
-		fmt.Println("Index: ", entry.Index, appliedIndex)
-		if uint64(entry.Index) <= appliedIndex {
+		if entry.Index <= d.lastApplied {
 			continue
 		}
 
-		data := &KvCmd{}
-		err := json.Unmarshal(entry.Cmd, data)
+		cmd := &store.Command{}
+		err := cmd.Unmarshal(entry.Cmd)
 		if err != nil {
 			continue
 		}
 
-		switch data.Cmd {
-		case "delete":
-			wb.Delete([]byte(data.Kv.Key))
-		case "update", "insert":
-			wb.Put([]byte(data.Kv.Key), []byte(data.Kv.Val))
+		switch cmd.Cmd {
+		case store.CommandDelete:
+			wb.Delete([]byte(cmd.Key))
+		case store.CommandUpsert:
+			wb.Put([]byte(cmd.Key), []byte(cmd.Val))
+		default:
 		}
 
 		ents[index].Result = sm.Result{Value: uint64(len(ents[index].Cmd))}
@@ -156,7 +138,7 @@ func (d *DiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 	wb.Put([]byte(appliedIndexKey), []byte(idx))
 
 	dbIndex := atomic.LoadUint32(&d.dbIndex)
-	if err := d.dbs[dbIndex].db.Write(d.dbs[dbIndex].wo, wb); err != nil {
+	if err := d.stores[dbIndex].BatchWrite(wb); err != nil {
 		return nil, err
 	}
 
@@ -165,60 +147,71 @@ func (d *DiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 	return ents, nil
 }
 
+// Lookup 与 Update and RecoverFromSnapshot 是并发安全的
 func (d *DiskKV) Lookup(key interface{}) (interface{}, error) {
 	dbIndex := atomic.LoadUint32(&d.dbIndex)
-	if d.dbs[dbIndex] != nil {
-		v, err := d.dbs[dbIndex].lookup(key.([]byte))
+	if d.stores[dbIndex] != nil {
+		v, err := d.stores[dbIndex].Lookup(key.([]byte))
 		return v, err
 	}
 	return nil, errors.New("db is nil")
 }
 
 type diskKVCtx struct {
-	db       *rocksdb
+	store    *store.Store
 	snapshot *gorocksdb.Snapshot
 }
 
 func (d *DiskKV) PrepareSnapshot() (interface{}, error) {
 	dbIndex := atomic.LoadUint32(&d.dbIndex)
-	db := d.dbs[dbIndex]
+	store := d.stores[dbIndex]
 
 	return &diskKVCtx{
-		db:       db,
-		snapshot: db.db.NewSnapshot(),
+		store:    store,
+		snapshot: store.NewSnapshot(),
 	}, nil
 }
 
-func (d *DiskKV) saveToWriter(db *rocksdb, ss *gorocksdb.Snapshot, w io.Writer) error {
-	ro := gorocksdb.NewDefaultReadOptions()
-	ro.SetSnapshot(ss)
-	iter := db.db.NewIterator(ro)
+func (d *DiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.Writer) error {
+	iter := store.NewIterator(ss)
 	defer iter.Close()
 
-	sz := make([]byte, 8)
+	dataSize := make([]byte, 8)
+	keySize := make([]byte, 8)
+	valSize := make([]byte, 8)
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
-		key := iter.Key()
-		val := iter.Value()
-		dataKv := &KvStore{
-			Key: string(key.Data()),
-			Val: string(val.Data()),
-		}
-		data, err := json.Marshal(dataKv)
-		if err != nil {
-			continue
-		}
-		binary.LittleEndian.PutUint64(sz, uint64(len(data)))
-		if _, err := w.Write(sz); err != nil {
+		key := iter.Key().Data()
+		val := iter.Value().Data()
+
+		kl := iter.Key().Size()
+		vl := iter.Value().Size()
+
+		binary.LittleEndian.PutUint64(dataSize, uint64(kl+vl+8+8))
+		if _, err := w.Write(dataSize); err != nil {
 			return err
 		}
-		if _, err := w.Write(data); err != nil {
+
+		binary.LittleEndian.PutUint64(keySize, uint64(kl))
+		if _, err := w.Write(keySize); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(key); err != nil {
+			return err
+		}
+
+		binary.LittleEndian.PutUint64(valSize, uint64(vl))
+		if _, err := w.Write(valSize); err != nil {
+			return err
+		}
+
+		if _, err := w.Write(val); err != nil {
 			return err
 		}
 	}
 
-	endSignal := "mraft-end-signal"
-	binary.LittleEndian.PutUint64(sz, uint64(len(endSignal)))
-	if _, err := w.Write(sz); err != nil {
+	binary.LittleEndian.PutUint64(dataSize, uint64(len(endSignal)))
+	if _, err := w.Write(dataSize); err != nil {
 		return err
 	}
 	if _, err := w.Write([]byte(endSignal)); err != nil {
@@ -235,16 +228,14 @@ func (d *DiskKV) SaveSnapshot(ctx interface{}, w io.Writer, done <-chan struct{}
 	default:
 		ctxdata := ctx.(*diskKVCtx)
 
-		db := ctxdata.db
-		db.mu.RLock()
-		defer db.mu.RUnlock()
-
+		store := ctxdata.store
 		ss := ctxdata.snapshot
 
-		return d.saveToWriter(db, ss, w)
+		return d.saveToWriter(store, ss, w)
 	}
 }
 
+// RecoverFromSnapshot 执行时，sm 的其他接口不会被同时执行
 func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 	select {
 	case <-done:
@@ -257,36 +248,38 @@ func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 			return err
 		}
 
-		db, err := create(dbdir)
+		store, err := store.NewStore(dbdir)
 		if err != nil {
 			return err
 		}
 
 		sz := make([]byte, 8)
-		endSignal := []byte("mraft-end-signal")
 		wb := gorocksdb.NewWriteBatch()
 		for {
 			if _, err := io.ReadFull(r, sz); err != nil {
 				return err
 			}
-			toRead := binary.LittleEndian.Uint64(sz)
-			data := make([]byte, toRead)
+			dataSize := binary.LittleEndian.Uint64(sz)
+			data := make([]byte, dataSize)
 			if _, err := io.ReadFull(r, data); err != nil {
 				return err
 			}
 
-			if bytes.Compare(data, endSignal) == 0 {
+			if bytes.Compare(data, []byte(endSignal)) == 0 {
 				break
 			}
 
-			dataKv := &KvStore{}
-			if err := json.Unmarshal(data, dataKv); err != nil {
+			kl := binary.LittleEndian.Uint64(data[:8])
+			key := data[8 : kl+8]
+			vl := binary.LittleEndian.Uint64(data[kl+8 : kl+16])
+			val := data[kl+16:]
+			if uint64(len(val)) != vl {
 				continue
 			}
-			wb.Put([]byte(dataKv.Key), []byte(dataKv.Val))
+			wb.Put(key, val)
 		}
 
-		if err := db.db.Write(db.wo, wb); err != nil {
+		if err := store.BatchWrite(wb); err != nil {
 			return err
 		}
 
@@ -300,14 +293,14 @@ func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 		oldDbIndex := atomic.LoadUint32(&d.dbIndex)
 		newDbIndex := 1 - oldDbIndex
 		atomic.StoreUint32(&d.dbIndex, newDbIndex)
-		d.dbs[newDbIndex] = db
+		d.stores[newDbIndex] = store
 
 		newLastApplied, err := d.queryAppliedIndex()
 		if err != nil {
 			return err
 		}
 
-		d.dbs[oldDbIndex].close()
+		d.stores[oldDbIndex].Close()
 
 		d.lastApplied = newLastApplied
 
@@ -317,8 +310,8 @@ func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 
 func (d *DiskKV) Close() error {
 	for i := 0; i < 2; i++ {
-		if d.dbs[i] != nil {
-			d.dbs[i].close()
+		if d.stores[i] != nil {
+			d.stores[i].Close()
 		}
 	}
 
