@@ -84,7 +84,7 @@ func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 			}
 			if _, err := os.Stat(dbdir); err != nil {
 				if os.IsNotExist(err) {
-					panic("db dir unexpectedly deleted")
+					return 0, err
 				}
 			}
 		} else {
@@ -112,7 +112,7 @@ func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 
 		d.lastApplied = appliedIndex
 
-		return 0, nil
+		return appliedIndex, nil
 	}
 }
 
@@ -131,7 +131,8 @@ func (d *DiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 	defer wb.Destroy()
 
 	for index, entry := range ents {
-		if uint64(index) <= appliedIndex {
+		fmt.Println("Index: ", entry.Index, appliedIndex)
+		if uint64(entry.Index) <= appliedIndex {
 			continue
 		}
 

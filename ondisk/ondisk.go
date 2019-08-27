@@ -48,6 +48,7 @@ func (disk *OnDiskRaft) Start(nodeID uint64) error {
 	logger.GetLogger("rsm").SetLevel(logger.WARNING)
 	logger.GetLogger("transport").SetLevel(logger.WARNING)
 	logger.GetLogger("grpc").SetLevel(logger.WARNING)
+	logger.GetLogger("dragonboat").SetLevel(logger.WARNING)
 
 	nhc := config.NodeHostConfig{
 		WALDir:         datadir,
@@ -124,7 +125,7 @@ func (disk *OnDiskRaft) Read(key string) (string, error) {
 	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	cancel()
 
-	return result.(string), err
+	return string(result.([]byte)), err
 }
 
 func (disk *OnDiskRaft) Stop() {
