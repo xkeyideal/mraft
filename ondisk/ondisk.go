@@ -95,7 +95,7 @@ func (disk *OnDiskRaft) start() {
 		case <-disk.exitChan:
 			goto exit
 		case kv := <-disk.kvs:
-			idx := fnv32(kv.Key) % uint32(len(disk.RaftClusterIDs))
+			idx := kv.HashKey % uint64(len(disk.RaftClusterIDs))
 			clusterID := disk.RaftClusterIDs[idx]
 			cs := disk.clusterSession[clusterID]
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -120,14 +120,14 @@ func (disk *OnDiskRaft) Write(kv *store.Command) {
 	disk.kvs <- kv
 }
 
-func (disk *OnDiskRaft) Read(key string) (string, error) {
-	idx := fnv32(key) % uint32(len(disk.RaftClusterIDs))
+func (disk *OnDiskRaft) Read(key string, hashKey uint64) (*store.RaftAttribute, error) {
+	idx := hashKey % uint64(len(disk.RaftClusterIDs))
 	clusterID := disk.RaftClusterIDs[idx]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	cancel()
 
-	return string(result.([]byte)), err
+	return result.(*store.RaftAttribute), err
 }
 
 func (disk *OnDiskRaft) Stop() {
@@ -137,14 +137,4 @@ func (disk *OnDiskRaft) Stop() {
 
 func (disk *OnDiskRaft) Info() *dragonboat.NodeHostInfo {
 	return disk.nodehost.GetNodeHostInfo(dragonboat.NodeHostInfoOption{SkipLogInfo: false})
-}
-
-func fnv32(key string) uint32 {
-	hash := uint32(2166136261)
-	const prime32 = uint32(16777619)
-	for i := 0; i < len(key); i++ {
-		hash *= prime32
-		hash ^= uint32(key[i])
-	}
-	return hash
 }

@@ -8,7 +8,6 @@ import (
 	"io"
 	"mraft/store"
 	"os"
-	"strconv"
 	"sync/atomic"
 
 	sm "github.com/lni/dragonboat/v3/statemachine"
@@ -40,12 +39,7 @@ func NewDiskKV(cluserID uint64, nodeID uint64) sm.IOnDiskStateMachine {
 func (d *DiskKV) queryAppliedIndex() (uint64, error) {
 	idx := atomic.LoadUint32(&d.dbIndex)
 
-	val, err := d.stores[idx].Lookup([]byte(appliedIndexKey))
-	if err != nil {
-		return 0, err
-	}
-
-	return strconv.ParseUint(string(val), 10, 64)
+	return d.stores[idx].LookupAppliedIndex([]byte(appliedIndexKey))
 }
 
 func (d *DiskKV) Open(stopc <-chan struct{}) (uint64, error) {

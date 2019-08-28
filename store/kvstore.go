@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"strconv"
 	"sync"
 
 	"github.com/tecbot/gorocksdb"
@@ -37,26 +39,49 @@ func NewStore(dbdir string) (*Store, error) {
 	}, nil
 }
 
-func (db *Store) Lookup(key []byte) ([]byte, error) {
+func (db *Store) LookupAppliedIndex(key []byte) (uint64, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
 	val, err := db.db.Get(db.ro, key)
-
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-
 	defer val.Free()
 
 	data := val.Data()
-
 	if len(data) == 0 {
-		return []byte(""), nil
+		return 0, errors.New("not found")
 	}
-	v := make([]byte, len(data))
+
+	v := make([]byte, val.Size())
 	copy(v, data)
-	return v, nil
+
+	return strconv.ParseUint(string(v), 10, 64)
+}
+
+func (db *Store) Lookup(key []byte) (*RaftAttribute, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	val, err := db.db.Get(db.ro, key)
+	if err != nil {
+		return nil, err
+	}
+	defer val.Free()
+
+	data := val.Data()
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	v := make([]byte, val.Size())
+	copy(v, data)
+
+	attr := &RaftAttribute{}
+	err = attr.Unmarshal(v)
+
+	return attr, err
 }
 
 func (db *Store) BatchWrite(wb *gorocksdb.WriteBatch) error {
