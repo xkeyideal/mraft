@@ -11,6 +11,7 @@ require (
 	github.com/lni/dragonboat/v3 v3.1.2
 	github.com/lni/goutils v1.0.1
 	github.com/petermattis/pebble v0.0.0-20190817001015-0803a3f0071d // indirect
+	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/tecbot/gorocksdb v0.0.0-20190705090504-162552197222
 	github.com/thrift-iterator/go v0.0.0-20190402154806-9b5a67519118
 	github.com/v2pro/plz v0.0.0-20180227161703-2d49b86ea382 // indirect

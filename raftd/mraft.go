@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"mraft/ondisk"
+	"mraft/store"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,7 +27,13 @@ func (mh *MRaftHandle) Info(c *gin.Context) {
 
 func (mh *MRaftHandle) Query(c *gin.Context) {
 	key := c.Query("key")
-	val, err := mh.raft.Read(key)
+	hashKey, err := strconv.ParseUint(c.Query("hashKey"), 10, 64)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	val, err := mh.raft.Read(key, hashKey)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
@@ -41,8 +49,14 @@ func (mh *MRaftHandle) Upsert(c *gin.Context) {
 		return
 	}
 
-	cmd := &ondisk.KvCmd{}
-	err = json.Unmarshal(bytes, cmd)
+	attr := &store.RaftAttribute{}
+	err = json.Unmarshal(bytes, attr)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	cmd, err := attr.GenerateCommand(store.CommandUpsert)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return

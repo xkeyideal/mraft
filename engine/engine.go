@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"mraft/config"
 	"mraft/ondisk"
 	"mraft/raftd"
 	"net/http"
@@ -14,7 +15,8 @@ import (
 type Engine struct {
 	prefix string
 
-	nodeID uint64
+	nodeID      uint64
+	raftDataDir string
 
 	server *http.Server
 	router *gin.Engine
@@ -25,23 +27,19 @@ type Engine struct {
 }
 
 func NewEngine(nodeID uint64, port string) *Engine {
+
+	cfg := config.NewOnDiskRaftConfig()
+
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	peers := map[uint64]string{
-		10000: "10.101.44.4:54000",
-		10001: "10.101.44.4:54100",
-		10002: "10.101.44.4:54200",
-	}
-
-	clusters := []uint64{254000, 254100, 254200}
-
-	nh := ondisk.NewOnDiskRaft(peers, clusters)
+	nh := ondisk.NewOnDiskRaft(cfg.RaftNodePeers, cfg.RaftClusterIDs)
 
 	engine := &Engine{
-		nodeID: nodeID,
-		prefix: "/mraft",
-		router: router,
+		nodeID:      nodeID,
+		raftDataDir: cfg.RaftDataDir,
+		prefix:      "/mraft",
+		router:      router,
 		server: &http.Server{
 			Addr:         fmt.Sprintf("0.0.0.0:%s", port), //"9080"
 			Handler:      router,
@@ -58,7 +56,7 @@ func NewEngine(nodeID uint64, port string) *Engine {
 }
 
 func (engine *Engine) Start() {
-	go engine.nh.Start(engine.nodeID)
+	go engine.nh.Start(engine.raftDataDir, engine.nodeID)
 
 	if err := engine.server.ListenAndServe(); err != nil {
 		panic(err.Error())

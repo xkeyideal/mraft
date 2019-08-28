@@ -25,25 +25,34 @@ type OnDiskRaft struct {
 	kvs      chan *store.Command
 	exitChan chan struct{}
 	wg       sync.WaitGroup
+
+	clusterMetrics map[uint64]*ondiskMetrics
+	lock           sync.RWMutex
 }
 
 func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
 
-	return &OnDiskRaft{
+	dr := &OnDiskRaft{
 		RaftNodePeers:  peers,
 		RaftClusterIDs: clusterIDs,
 		clusterSession: make(map[uint64]*client.Session),
 		kvs:            make(chan *store.Command, 10),
 		exitChan:       make(chan struct{}),
 		wg:             sync.WaitGroup{},
+
+		clusterMetrics: make(map[uint64]*ondiskMetrics),
+		lock:           sync.RWMutex{},
 	}
+
+	for _, clusterID := range clusterIDs {
+		dr.clusterMetrics[clusterID] = newOndiskMetrics()
+	}
+
+	return dr
 }
 
-func (disk *OnDiskRaft) Start(nodeID uint64) error {
-	datadir := filepath.Join(
-		"/Volumes/ST1000/",
-		"mraft-ondisk",
-		fmt.Sprintf("node%d", nodeID))
+func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64) error {
+	datadir := filepath.Join(raftDataDir, fmt.Sprintf("node%d", nodeID))
 
 	logger.GetLogger("raft").SetLevel(logger.ERROR)
 	logger.GetLogger("rsm").SetLevel(logger.WARNING)
@@ -100,13 +109,17 @@ func (disk *OnDiskRaft) start() {
 			cs := disk.clusterSession[clusterID]
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 
-			cmd, err := json.Marshal(kv)
+			cmdBytes, _ := kv.Marshal()
+			_, err := disk.nodehost.SyncPropose(ctx, cs, cmdBytes)
+			ok := true
 			if err != nil {
-				panic(err)
+				ok = false
 			}
 
-			res, err := disk.nodehost.SyncPropose(ctx, cs, cmd)
-			fmt.Println(res, err)
+			disk.lock.Lock()
+			metrics := disk.clusterMetrics[clusterID]
+			metrics.add(1, ok)
+			disk.lock.Unlock()
 
 			cancel()
 		}
@@ -133,6 +146,29 @@ func (disk *OnDiskRaft) Read(key string, hashKey uint64) (*store.RaftAttribute, 
 func (disk *OnDiskRaft) Stop() {
 	close(disk.exitChan)
 	disk.nodehost.Stop()
+
+	disk.clusterMetrics = make(map[uint64]*ondiskMetrics)
+}
+
+func (disk *OnDiskRaft) MetricsInfo() string {
+	disk.lock.RLock()
+	defer disk.lock.RUnlock()
+
+	type stat struct {
+		ClusterID uint64 `json:"clusterID"`
+		Total     int64  `json:"total"`
+		Err       int64  `json:"err"`
+	}
+
+	res := []stat{}
+
+	for clusterID, metrics := range disk.clusterMetrics {
+		res = append(res, stat{clusterID, metrics.total.Count(), metrics.err.Count()})
+	}
+
+	b, _ := json.Marshal(res)
+
+	return string(b)
 }
 
 func (disk *OnDiskRaft) Info() *dragonboat.NodeHostInfo {
