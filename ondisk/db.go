@@ -87,10 +87,10 @@ func cleanupNodeDataDir(dir string) error {
 		if !fi.IsDir() {
 			continue
 		}
-		fmt.Printf("dbdir %s, fi.name %s, dir %s\n", dbdir, fi.Name(), dir)
+		//fmt.Printf("dbdir %s, fi.name %s, dir %s\n", dbdir, fi.Name(), dir)
 		toDelete := filepath.Join(dir, fi.Name())
 		if toDelete != dbdir {
-			fmt.Printf("removing %s\n", toDelete)
+			//fmt.Printf("removing %s\n", toDelete)
 			if err := os.RemoveAll(toDelete); err != nil {
 				return err
 			}

@@ -1,7 +1,7 @@
 package store
 
 import (
-	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 
@@ -51,7 +51,7 @@ func (db *Store) LookupAppliedIndex(key []byte) (uint64, error) {
 
 	data := val.Data()
 	if len(data) == 0 {
-		return 0, errors.New("not found")
+		return 0, nil
 	}
 
 	v := make([]byte, val.Size())
@@ -72,7 +72,7 @@ func (db *Store) Lookup(key []byte) (*RaftAttribute, error) {
 
 	data := val.Data()
 	if len(data) == 0 {
-		return nil, nil
+		return nil, fmt.Errorf("key: <%s> not found", string(key))
 	}
 
 	v := make([]byte, val.Size())

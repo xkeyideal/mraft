@@ -67,6 +67,35 @@ func (mh *MRaftHandle) Upsert(c *gin.Context) {
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }
 
+func (mh *MRaftHandle) Delete(c *gin.Context) {
+	bytes, err := ioutil.ReadAll(c.Request.Body)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	attr := &store.RaftAttribute{}
+	err = json.Unmarshal(bytes, attr)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	cmd, err := attr.GenerateCommand(store.CommandDelete)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	mh.raft.Write(cmd)
+
+	SetStrResp(http.StatusOK, 0, "", "OK", c)
+}
+
+func (mh *MRaftHandle) RaftMetrics(c *gin.Context) {
+	SetStrResp(http.StatusOK, 0, "", mh.raft.MetricsInfo(), c)
+}
+
 func SetStrResp(httpCode, code int, msg string, result interface{}, c *gin.Context) {
 
 	m := msg

@@ -59,6 +59,7 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64) error {
 	logger.GetLogger("transport").SetLevel(logger.WARNING)
 	logger.GetLogger("grpc").SetLevel(logger.WARNING)
 	logger.GetLogger("dragonboat").SetLevel(logger.WARNING)
+	logger.GetLogger("logdb").SetLevel(logger.WARNING)
 
 	nhc := config.NodeHostConfig{
 		DeploymentID:   20,
@@ -140,7 +141,11 @@ func (disk *OnDiskRaft) Read(key string, hashKey uint64) (*store.RaftAttribute, 
 	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	cancel()
 
-	return result.(*store.RaftAttribute), err
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*store.RaftAttribute), nil
 }
 
 func (disk *OnDiskRaft) Stop() {
