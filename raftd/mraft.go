@@ -27,13 +27,24 @@ func (mh *MRaftHandle) Info(c *gin.Context) {
 
 func (mh *MRaftHandle) Query(c *gin.Context) {
 	key := c.Query("key")
+	sync := c.Query("sync")
 	hashKey, err := strconv.ParseUint(c.Query("hashKey"), 10, 64)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
 	}
 
-	val, err := mh.raft.Read(key, hashKey)
+	if sync == "true" {
+		val, err := mh.raft.SyncRead(key, hashKey)
+		if err != nil {
+			SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+			return
+		}
+		SetStrResp(http.StatusOK, 0, "", val, c)
+		return
+	}
+
+	val, err := mh.raft.ReadLocal(key, hashKey)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
@@ -89,6 +100,23 @@ func (mh *MRaftHandle) Delete(c *gin.Context) {
 
 	mh.raft.Write(cmd)
 
+	SetStrResp(http.StatusOK, 0, "", "OK", c)
+}
+
+func (mh *MRaftHandle) JoinNode(c *gin.Context) {
+	nodeID, err := strconv.ParseUint(c.Query("nodeID"), 10, 64)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	nodeAddr := c.Query("nodeAddr")
+
+	err = mh.raft.RaftAddNode(nodeID, nodeAddr)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }
 

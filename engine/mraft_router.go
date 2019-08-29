@@ -11,5 +11,7 @@ func (engine *Engine) registerMraftRouter(router *gin.Engine) {
 		group.GET("/key", engine.mraftHandle.Query)
 		group.POST("/key", engine.mraftHandle.Upsert)
 		group.DELETE("/key", engine.mraftHandle.Delete)
+
+		group.GET("/join", engine.mraftHandle.JoinNode)
 	}
 }

@@ -56,7 +56,14 @@ func NewEngine(nodeID uint64, port string) *Engine {
 }
 
 func (engine *Engine) Start() {
-	go engine.nh.Start(engine.raftDataDir, engine.nodeID)
+	join := false
+	nodeAddr := ""
+	if engine.nodeID == 10003 {
+		join = true
+		nodeAddr = "10.101.44.4:54300"
+	}
+
+	engine.nh.Start(engine.raftDataDir, engine.nodeID, nodeAddr, join)
 
 	if err := engine.server.ListenAndServe(); err != nil {
 		panic(err.Error())

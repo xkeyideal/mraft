@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"mraft/store"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -51,7 +52,8 @@ func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
 	return dr
 }
 
-func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64) error {
+func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string, join bool) error {
+
 	datadir := filepath.Join(raftDataDir, fmt.Sprintf("node%d", nodeID))
 
 	logger.GetLogger("raft").SetLevel(logger.ERROR)
@@ -61,12 +63,19 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64) error {
 	logger.GetLogger("dragonboat").SetLevel(logger.WARNING)
 	logger.GetLogger("logdb").SetLevel(logger.WARNING)
 
+	raftAddress := disk.RaftNodePeers[nodeID]
+	peers := disk.RaftNodePeers
+	if join {
+		raftAddress = nodeAddr
+		peers = make(map[uint64]string)
+	}
+
 	nhc := config.NodeHostConfig{
 		DeploymentID:   20,
 		WALDir:         datadir,
 		NodeHostDir:    datadir,
 		RTTMillisecond: 100,
-		RaftAddress:    disk.RaftNodePeers[nodeID],
+		RaftAddress:    raftAddress,
 	}
 
 	nh, err := dragonboat.NewNodeHost(nhc)
@@ -83,10 +92,11 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64) error {
 			ElectionRTT:        10,
 			HeartbeatRTT:       1,
 			CheckQuorum:        true,
-			SnapshotEntries:    10,
-			CompactionOverhead: 5,
+			SnapshotEntries:    1,
+			CompactionOverhead: 1,
 		}
-		if err := nh.StartOnDiskCluster(disk.RaftNodePeers, false, NewDiskKV, rc); err != nil {
+
+		if err := nh.StartOnDiskCluster(peers, join, NewDiskKV, rc); err != nil {
 			panic(err)
 		}
 
@@ -134,12 +144,26 @@ func (disk *OnDiskRaft) Write(kv *store.Command) {
 	disk.kvs <- kv
 }
 
-func (disk *OnDiskRaft) Read(key string, hashKey uint64) (*store.RaftAttribute, error) {
+// SyncRead 线性读
+func (disk *OnDiskRaft) SyncRead(key string, hashKey uint64) (*store.RaftAttribute, error) {
 	idx := hashKey % uint64(len(disk.RaftClusterIDs))
 	clusterID := disk.RaftClusterIDs[idx]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	cancel()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result.(*store.RaftAttribute), nil
+}
+
+// ReadLocal 读本地
+func (disk *OnDiskRaft) ReadLocal(key string, hashKey uint64) (*store.RaftAttribute, error) {
+	idx := hashKey % uint64(len(disk.RaftClusterIDs))
+	clusterID := disk.RaftClusterIDs[idx]
+	result, err := disk.nodehost.StaleRead(clusterID, []byte(key))
 
 	if err != nil {
 		return nil, err
@@ -155,6 +179,7 @@ func (disk *OnDiskRaft) Stop() {
 	disk.clusterMetrics = make(map[uint64]*ondiskMetrics)
 }
 
+// MetricsInfo 用于做写入次数的统计
 func (disk *OnDiskRaft) MetricsInfo() string {
 	disk.lock.RLock()
 	defer disk.lock.RUnlock()
@@ -176,6 +201,33 @@ func (disk *OnDiskRaft) MetricsInfo() string {
 	return string(b)
 }
 
+// Info 查询NodeHostInfo
 func (disk *OnDiskRaft) Info() *dragonboat.NodeHostInfo {
 	return disk.nodehost.GetNodeHostInfo(dragonboat.NodeHostInfoOption{SkipLogInfo: false})
+}
+
+// RaftAddNode 新增一个节点，./example-helloworld -nodeid 4 -addr localhost:63100 -join
+func (disk *OnDiskRaft) RaftAddNode(nodeID uint64, nodeAddr string) error {
+
+	if _, ok := disk.RaftNodePeers[nodeID]; ok {
+		return fmt.Errorf("<%d> conflict", nodeID)
+	}
+
+	for _, clusterID := range disk.RaftClusterIDs {
+		rs, err := disk.nodehost.RequestAddNode(clusterID, nodeID, nodeAddr, 0, 5*time.Second)
+		if err != nil {
+			return err
+		}
+
+		select {
+		case r := <-rs.CompletedC:
+			if r.Completed() {
+				fmt.Fprintf(os.Stdout, "membership change completed successfully\n")
+			} else {
+				return fmt.Errorf("<%d-%d> membership change failed", nodeID, clusterID)
+			}
+		}
+	}
+
+	return nil
 }
