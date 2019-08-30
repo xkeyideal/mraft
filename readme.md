@@ -20,7 +20,7 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 ### TCPServer压测结果
 
-multi-raft的网络协议与数据格式均使用simple-server中相同的方式，压测结果详见[simple-server-benchmark]()
+multi-raft的网络协议与数据格式均使用simple-server中相同的方式，压测结果详见[simple-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/simple-server-benchmark.md)
 
 ### 压测机器说明
 
@@ -59,3 +59,51 @@ clusters := []uint64{254000, 254100, 254200}
 示例的核心入口代码在engine/engine.go中，由于是示例，很多参数直接在代码中写死了。
 
 HTTP服务采用[gin](https://github.com/gin-gonic/gin)
+
+### RequestAddNode 向集群添加节点的注意事项
+
+1. 先在集群中调用添加节点的命令RequestAddNode
+2. 启动新增的节点，注意join节点的启动参数， nh.StartOnDiskCluster(map[uint64]string{}, true, NewDiskKV, rc)
+3. 新增节点成功后，机器会通过Snapshot将数据同步给join节点
+4. 新增节点与集群原有节点的启动顺序不影响集群的工作
+5. 若新的集群需要重启，那么不能改变原有的peers(将新节点加入到peers)，否则集群启动不起来，报错如下：
+
+
+```
+join节点的报错
+
+2019-08-30 15:29:09.597258 E | raftpb: restarting previously joined node, member list map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300]
+2019-08-30 15:29:09.597454 E | dragonboat: bootstrap validation failed, [54000:10003], map[], true, map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300], false
+panic: cluster settings are invalid
+```
+<br>
+```
+集群原来节点的报错
+
+2019-08-30 15:29:06.590245 E | raftpb: inconsistent node list, bootstrap map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200], incoming map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300]
+2019-08-30 15:29:06.590289 E | dragonboat: bootstrap validation failed, [54000:10002], map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200], false, map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300], false
+panic: cluster settings are invalid
+```
+
+```
+原来的集群节点
+map[uint64]string{
+    10000: "10.101.44.4:54000",
+    10001: "10.101.44.4:54100",
+    10002: "10.101.44.4:54200",
+}
+
+新增的节点：10003: "10.101.44.4:54300"
+```
+
+```
+正确join或重启的方式
+join := false
+nodeAddr := ""
+if engine.nodeID == 10003 {
+    join = true
+    nodeAddr = "10.101.44.4:54300"
+}
+
+engine.nh.Start(engine.raftDataDir, engine.nodeID, nodeAddr, join)
+```
