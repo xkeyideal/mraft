@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 
 	thrifter "github.com/thrift-iterator/go"
 )
@@ -58,4 +60,26 @@ func (attr *RaftAttribute) GenerateCommand(cmd string) (*Command, error) {
 
 func (attr *RaftAttribute) Unmarshal(b []byte) error {
 	return thrifter.Unmarshal(b, attr)
+}
+
+func (attr *RaftAttribute) WriteTo(w io.Writer) (int64, error) {
+	dataSize := make([]byte, 8)
+
+	b, err := attr.Marshal()
+	if err != nil {
+		return 0, err
+	}
+
+	l := len(b)
+
+	binary.LittleEndian.PutUint64(dataSize, uint64(l))
+	if _, err := w.Write(dataSize); err != nil {
+		return 0, err
+	}
+
+	if _, err := w.Write(b); err != nil {
+		return 0, err
+	}
+
+	return int64(8 + l), nil
 }
