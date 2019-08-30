@@ -8,6 +8,7 @@ import (
 	"mraft/store"
 	"net"
 	"sync"
+	"time"
 )
 
 const defaultBufferSize = 5 * 1024
@@ -18,9 +19,11 @@ type SimpleClient struct {
 	conn    net.Conn
 	reader  *bufio.Reader
 	writer  *bufio.Writer
+
+	recv chan struct{}
 }
 
-func NewSimpleClient(address string) (*SimpleClient, error) {
+func NewSimpleClient(address string, recv chan struct{}) (*SimpleClient, error) {
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
 		return nil, err
@@ -32,6 +35,8 @@ func NewSimpleClient(address string) (*SimpleClient, error) {
 		conn:    conn,
 		writer:  bufio.NewWriterSize(conn, defaultBufferSize),
 		reader:  bufio.NewReaderSize(conn, defaultBufferSize),
+
+		recv: recv,
 	}
 
 	go sc.handleSend()
@@ -58,6 +63,8 @@ func (sc *SimpleClient) writeCommand(attr *store.RaftAttribute) error {
 		sc.mu.Unlock()
 		return err
 	}
+
+	sc.conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 
 	sc.Flush()
 
@@ -89,6 +96,7 @@ func (sc *SimpleClient) handleRecv() {
 	sz := make([]byte, 8)
 
 	for {
+		sc.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		_, err = sc.reader.Read(sz)
 		if err != nil {
 			if err == io.EOF {
@@ -108,7 +116,9 @@ func (sc *SimpleClient) handleRecv() {
 			break
 		}
 
-		fmt.Println(string(body))
+		sc.recv <- struct{}{}
+
+		// fmt.Println(string(body))
 	}
 }
 

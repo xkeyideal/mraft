@@ -18,6 +18,22 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 在Raft SaveSnapshot与RecoverFromSnapshot时，采用的是自定义二进制协议，详细见[fsm.go](https://github.com/xkeyideal/mraft/blob/master/ondisk/fsm.go#L233)，压测结果详见[binary-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/binary-serialize/binary-serialize.md)
 
+### TCPServer压测结果
+
+multi-raft的网络协议与数据格式均使用simple-server中相同的方式，压测结果详见[simple-server-benchmark]()
+
+### 压测机器说明
+
+机器采用的是开发环境的机器，操作系统macOS High Sierra，`Darwin Kernel Version 18.6.0 root:xnu-4903.261.4~2/RELEASE_X86_64 x86_64 i386 iMac14,2 Darwin`
+
+<br>
+
+CPU：3.29 GHz Intel Core i5
+
+<br>
+
+内存：20 GB 1600 MHz DDR3
+
 
 ### 启动方式
 

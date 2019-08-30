@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 const defaultBufferSize = 5 * 1024
@@ -69,6 +70,8 @@ func (ss *SimpleServer) handle(conn net.Conn) error {
 	sz := make([]byte, 8)
 
 	for {
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
 		_, err = reader.Read(sz)
 		if err != nil {
 			if err == io.EOF {
@@ -93,8 +96,6 @@ func (ss *SimpleServer) handle(conn net.Conn) error {
 		if err != nil {
 			err = fmt.Errorf("failed to unmarshal databody - %s", err)
 			break
-		} else {
-			fmt.Printf("%+v\n", attr)
 		}
 
 		ss.writelock.Lock()
@@ -103,8 +104,11 @@ func (ss *SimpleServer) handle(conn net.Conn) error {
 		if e != nil {
 			fmt.Println(e)
 		}
-		n, e := writer.Write(wd)
-		fmt.Println("send:", n, e)
+
+		writer.Write(wd)
+		//fmt.Println("send:", n, e)
+
+		conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
 		writer.Flush()
 
 		ss.writelock.Unlock()
