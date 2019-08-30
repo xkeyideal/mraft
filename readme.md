@@ -75,7 +75,7 @@ join节点的报错
 2019-08-30 15:29:09.597454 E | dragonboat: bootstrap validation failed, [54000:10003], map[], true, map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300], false
 panic: cluster settings are invalid
 ```
-<br>
+
 ```json
 集群原来节点的报错
 
@@ -83,7 +83,7 @@ panic: cluster settings are invalid
 2019-08-30 15:29:06.590289 E | dragonboat: bootstrap validation failed, [54000:10002], map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200], false, map[10000:10.101.44.4:54000 10001:10.101.44.4:54100 10002:10.101.44.4:54200 10003:10.101.44.4:54300], false
 panic: cluster settings are invalid
 ```
-<br>
+
 ```json
 原来的集群节点
 map[uint64]string{
@@ -94,7 +94,7 @@ map[uint64]string{
 
 新增的节点：10003: "10.101.44.4:54300"
 ```
-<br>
+
 ```json
 正确join或重启的方式
 join := false
