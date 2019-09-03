@@ -182,6 +182,37 @@ func (disk *OnDiskRaft) SyncRead(key string, hashKey uint64) (*store.RaftAttribu
 	return result.(*store.RaftAttribute), nil
 }
 
+func (disk *OnDiskRaft) AdvanceSyncRead(key string, hashKey uint64) (*store.RaftAttribute, error) {
+	idx := hashKey % uint64(len(disk.RaftClusterIDs))
+	clusterID := disk.RaftClusterIDs[idx]
+
+	rs, err := disk.nodeUsers[clusterID].ReadIndex(3 * time.Second)
+	defer func() {
+		if rs != nil {
+			rs.Release()
+		}
+	}()
+
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = checkRequestState(rs)
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := disk.nodehost.NAReadLocalNode(rs, []byte(key))
+	if err != nil {
+		return nil, err
+	}
+
+	attr := &store.RaftAttribute{}
+	err = attr.Unmarshal(v)
+
+	return attr, err
+}
+
 // ReadLocal 读本地
 func (disk *OnDiskRaft) ReadLocal(key string, hashKey uint64) (*store.RaftAttribute, error) {
 	idx := hashKey % uint64(len(disk.RaftClusterIDs))

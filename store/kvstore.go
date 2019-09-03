@@ -97,6 +97,27 @@ func (db *Store) Lookup(key []byte) (*RaftAttribute, error) {
 	return attr, err
 }
 
+func (db *Store) NALookup(key []byte) ([]byte, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	val, err := db.db.Get(db.ro, key)
+	if err != nil {
+		return nil, err
+	}
+	defer val.Free()
+
+	data := val.Data()
+	if len(data) == 0 {
+		return nil, fmt.Errorf("key: <%s> not found", string(key))
+	}
+
+	v := make([]byte, val.Size())
+	copy(v, data)
+
+	return v, err
+}
+
 func (db *Store) BatchWrite(wb *gorocksdb.WriteBatch) error {
 	return db.db.Write(db.wo, wb)
 }

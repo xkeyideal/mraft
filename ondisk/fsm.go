@@ -151,6 +151,14 @@ func (d *DiskKV) Lookup(key interface{}) (interface{}, error) {
 	return nil, errors.New("db is nil")
 }
 
+func (d *DiskKV) NALookup(key []byte) ([]byte, error) {
+	dbIndex := atomic.LoadUint32(&d.dbIndex)
+	if d.stores[dbIndex] != nil {
+		return d.stores[dbIndex].NALookup(key)
+	}
+	return nil, errors.New("db is nil")
+}
+
 type diskKVCtx struct {
 	store    *store.Store
 	snapshot *gorocksdb.Snapshot
