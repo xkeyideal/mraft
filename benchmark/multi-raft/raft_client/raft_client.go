@@ -75,7 +75,6 @@ func (sc *RaftSimpleClient) readCommand(arg *store.ReadArgument) error {
 
 	_, err := arg.WriteTo(store.CommandRead, sc)
 	if err != nil {
-		fmt.Println("Write failed,", err.Error())
 		sc.mu.Unlock()
 		return err
 	}
@@ -94,7 +93,6 @@ func (sc *RaftSimpleClient) writeCommand(attr *store.RaftAttribute) error {
 
 	_, err := attr.WriteTo(store.CommandUpsert, sc)
 	if err != nil {
-		fmt.Println("Write failed,", err.Error())
 		sc.mu.Unlock()
 		return err
 	}
@@ -118,7 +116,6 @@ func (sc *RaftSimpleClient) PublishCommand(cmd interface{}) (*store.RaftAttribut
 
 	// 阻塞
 	t := <-doneChan
-	fmt.Println("doneChan")
 	return t.Resp, t.Error
 }
 
@@ -144,7 +141,6 @@ func (sc *RaftSimpleClient) popTransaction(data []byte) {
 	cmdSize := binary.LittleEndian.Uint32(data[:4])
 	cmd := string(data[4 : 4+cmdSize])
 	errSignal := string(data[4+cmdSize : 4+cmdSize+1])
-	fmt.Println(cmd, errSignal)
 	switch cmd {
 	case store.CommandUpsert:
 		if errSignal == "0" {
@@ -175,7 +171,6 @@ func (sc *RaftSimpleClient) handleSend() {
 				sc.writeCommand(t.cmd.(*store.RaftAttribute))
 			}
 		case data := <-sc.responseChan:
-			fmt.Println("data:", len(data))
 			sc.popTransaction(data)
 		case <-sc.exitChan:
 			return
@@ -209,7 +204,6 @@ func (sc *RaftSimpleClient) handleRecv() {
 		}
 
 		sc.responseChan <- body
-		fmt.Println("responseChan")
 	}
 }
 

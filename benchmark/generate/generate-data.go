@@ -13,6 +13,8 @@ var idChars = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345
 const idLen = 20
 
 func GenerateData() *store.RaftAttribute {
+	mrand.Seed(time.Now().UnixNano())
+
 	attr := &store.RaftAttribute{
 		AttrID:    uint64(mrand.Int31n(1000000) + 1000000),
 		AttrName:  randomId(),

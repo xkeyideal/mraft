@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	mraftDBDirName     string = "/Volumes/ST1000/mraft-rocksdb"
+	mraftDBDirName     string = "/Users/xkey/raftlab/mraft-rocksdb"
 	currentDBFilename  string = "current"
 	updatingDBFilename string = "current.updating"
 )

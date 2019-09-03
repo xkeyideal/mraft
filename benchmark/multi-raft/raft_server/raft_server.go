@@ -17,13 +17,13 @@ import (
 const defaultBufferSize = 5 * 1024
 
 var (
-	raftDataDir   = "/Volumes/ST1000/mraft-server-ondisk"
+	raftDataDir   = "/Users/xkey/raftlab/mraft-server-ondisk"
 	raftNodePeers = map[uint64]string{
 		10000: "10.101.44.4:54000",
 		10001: "10.101.44.4:54100",
 		10002: "10.101.44.4:54200",
 	}
-	raftClusterIDs = []uint64{254000, 254100, 254200}
+	// raftClusterIDs = []uint64{254000, 254100, 254200}
 )
 
 type clientConn struct {
@@ -54,6 +54,13 @@ func NewRaftSimpleServer(address string, nodeID uint64) (*RaftSimpleServer, erro
 	l, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, err
+	}
+
+	raftClusterIDs := []uint64{}
+	var clusterID uint64 = 250000
+	var i uint64
+	for i = 0; i < 10; i++ {
+		raftClusterIDs = append(raftClusterIDs, clusterID+i)
 	}
 
 	ss := &RaftSimpleServer{
@@ -128,8 +135,6 @@ func (ss *RaftSimpleServer) handle(conn net.Conn) error {
 
 		attr, err := ss.execCommand(command, data)
 
-		fmt.Println(attr, err)
-
 		ss.sendResponse(client, command, attr, err)
 	}
 
@@ -137,13 +142,11 @@ func (ss *RaftSimpleServer) handle(conn net.Conn) error {
 }
 
 func (ss *RaftSimpleServer) execCommand(command string, data []byte) (*store.RaftAttribute, error) {
-	fmt.Println("execCommand: ", command)
 	switch command {
 	case store.CommandRead:
 		arg := &store.ReadArgument{}
 		err := arg.Unmarshal(data)
 
-		//fmt.Printf("arg: %+v\n", arg)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +158,6 @@ func (ss *RaftSimpleServer) execCommand(command string, data []byte) (*store.Raf
 	case store.CommandUpsert:
 		attr := &store.RaftAttribute{}
 		err := attr.Unmarshal(data)
-		//fmt.Printf("attr: %+v\n", attr)
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +169,7 @@ func (ss *RaftSimpleServer) execCommand(command string, data []byte) (*store.Raf
 	return nil, nil
 }
 
-func (ss *RaftSimpleServer) sendResponse(client *clientConn, command string, attr *store.RaftAttribute, err error) {
+func (ss *RaftSimpleServer) sendResponse(client *clientConn, command string, attr *store.RaftAttribute, err error) (int, error) {
 	client.writeLock.Lock()
 
 	var e error
@@ -180,23 +182,13 @@ func (ss *RaftSimpleServer) sendResponse(client *clientConn, command string, att
 		n, e = sendFramedResponse(client.Writer, command, []byte("1"), b)
 	}
 
-	if e != nil {
-		fmt.Println("sendFramedResponse: ", e)
-	}
-
-	fmt.Println("Write num:", n)
-
 	e = client.SetWriteDeadline(time.Now().Add(3 * time.Second))
-	if e != nil {
-		fmt.Println("SetWriteDeadline: ", e)
-	}
 
 	e = client.Writer.Flush()
-	if e != nil {
-		fmt.Println("Writer Flush: ", e)
-	}
 
 	client.writeLock.Unlock()
+
+	return n, e
 }
 
 func (ss *RaftSimpleServer) Stop() {

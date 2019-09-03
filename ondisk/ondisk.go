@@ -88,8 +88,8 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 			ElectionRTT:        10,
 			HeartbeatRTT:       1,
 			CheckQuorum:        true,
-			SnapshotEntries:    100,
-			CompactionOverhead: 10,
+			SnapshotEntries:    1000,
+			CompactionOverhead: 100,
 		}
 
 		if err := nh.StartOnDiskCluster(peers, join, NewDiskKV, rc); err != nil {
