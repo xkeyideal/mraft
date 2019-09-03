@@ -24,7 +24,7 @@ multi-raft的网络协议与数据格式均使用simple-server中相同的方式
 
 ### RaftServer压测结果
 
-multi-raft的压测协议与数据格式均使用simple-server中相同的方式，压测结果详见[raft-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/server-server-benchmark.md)
+multi-raft的压测协议与数据格式均使用simple-server中相同的方式，压测结果详见[raft-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/raft-server-benchmark.md)
 
 ### 压测机器说明
 
