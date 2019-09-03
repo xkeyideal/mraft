@@ -22,17 +22,19 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 multi-raft的网络协议与数据格式均使用simple-server中相同的方式，压测结果详见[simple-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/simple-server-benchmark.md)
 
+### RaftServer压测结果
+
+multi-raft的压测协议与数据格式均使用simple-server中相同的方式，压测结果详见[raft-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/server-server-benchmark.md)
+
 ### 压测机器说明
 
 机器采用的是开发环境的机器，操作系统macOS High Sierra，`Darwin Kernel Version 18.6.0 root:xnu-4903.261.4~2/RELEASE_X86_64 x86_64 i386 iMac14,2 Darwin`
 
-<br>
-
 CPU：3.29 GHz Intel Core i5
 
-<br>
-
 内存：20 GB 1600 MHz DDR3
+
+磁盘：256GB SATA SSD
 
 
 ### 启动方式
