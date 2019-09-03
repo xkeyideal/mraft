@@ -18,9 +18,22 @@ type Store struct {
 }
 
 func NewStore(dbdir string) (*Store, error) {
+	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(1 << 30)) // 内存缓存大小
+
 	opts := gorocksdb.NewDefaultOptions()
+
+	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
 	opts.SetUseFsync(true)
+	opts.SetMaxBackgroundCompactions(8)               // 后台整理线程的个数, rocksdb的gc
+	opts.SetWalSizeLimitMb(3000)                      // rocksdb的wal日志大小
+	opts.SetWriteBufferSize(1 << 29)                  // 写入缓冲区的大小
+	opts.SetInfoLogLevel(gorocksdb.ErrorInfoLogLevel) // rocksdb日志级别
+	opts.SetBytesPerSync(1048576)
+	opts.SetMaxBackgroundFlushes(2)
+	opts.SetMaxBackgroundCompactions(4)
+	opts.SetLevelCompactionDynamicLevelBytes(true)
 
 	wo := gorocksdb.NewDefaultWriteOptions()
 	wo.SetSync(true)

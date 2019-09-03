@@ -2,17 +2,18 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"mraft/benchmark/generate"
-	"mraft/benchmark/multi-raft/client"
+	"mraft/benchmark/multi-raft/raft_client"
 	"mraft/store"
 	"sync"
 	"time"
 )
 
 type TestClient struct {
-	client *client.SimpleClient
+	client *raft_client.RaftSimpleClient
 	send   chan *store.RaftAttribute
-	recv   chan struct{}
+	query  chan *store.ReadArgument
 
 	exitchan chan struct{}
 	wg       sync.WaitGroup
@@ -25,23 +26,42 @@ func (tc *TestClient) Gen(n int) {
 	}
 }
 
-func (tc *TestClient) Send() {
+func (tc *TestClient) SendWriteCommand() {
 	for {
 		select {
 		case <-tc.exitchan:
 			return
 		case attr := <-tc.send:
-			tc.client.SendMessage(attr)
+			fmt.Println("before PublishCommand")
+			_, err := tc.client.PublishCommand(attr)
+			fmt.Println("after PublishCommand", err)
+			if err != nil {
+				fmt.Println("SendWriteCommand: ", err.Error())
+			}
+
+			n := rand.Intn(10)
+			fmt.Println("random_n:", n)
+			if n < 10 { // 30%入查询
+				tc.query <- &store.ReadArgument{
+					Key:     fmt.Sprintf("%d_%s", attr.AttrID, attr.AttrName),
+					HashKey: attr.AttrID,
+					Sync:    true,
+				}
+			} else {
+				tc.wg.Done()
+			}
 		}
 	}
 }
 
-func (tc *TestClient) Recv() {
+func (tc *TestClient) SendQueryCommand() {
 	for {
 		select {
 		case <-tc.exitchan:
 			return
-		case <-tc.recv:
+		case arg := <-tc.query:
+			attr, err := tc.client.PublishCommand(arg)
+			fmt.Println(attr, err)
 			tc.wg.Done()
 		}
 	}
@@ -60,13 +80,13 @@ func makeClient(connections, taskNum int, wg *sync.WaitGroup) {
 	for i := 0; i < connections; i++ {
 		go func(cwg *sync.WaitGroup) {
 			tc := &TestClient{
-				send:     make(chan *store.RaftAttribute, 1000),
-				recv:     make(chan struct{}, 1000),
+				send:     make(chan *store.RaftAttribute, 100),
+				query:    make(chan *store.ReadArgument, 30),
 				exitchan: make(chan struct{}),
 				wg:       sync.WaitGroup{},
 			}
 
-			client, err := client.NewSimpleClient("10.101.44.4:25701", tc.recv)
+			client, err := raft_client.NewRaftSimpleClient("10.101.44.4:25700")
 			if err != nil {
 				panic(err)
 			}
@@ -76,8 +96,8 @@ func makeClient(connections, taskNum int, wg *sync.WaitGroup) {
 			tc.wg.Add(taskNum)
 
 			go tc.Gen(taskNum)
-			go tc.Send()
-			go tc.Recv()
+			go tc.SendWriteCommand()
+			go tc.SendQueryCommand()
 
 			tc.wg.Wait()
 

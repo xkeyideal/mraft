@@ -14,6 +14,7 @@ import (
 	"github.com/lni/dragonboat/v3/client"
 	"github.com/lni/dragonboat/v3/config"
 	"github.com/lni/dragonboat/v3/logger"
+	sm "github.com/lni/dragonboat/v3/statemachine"
 )
 
 type OnDiskRaft struct {
@@ -22,10 +23,7 @@ type OnDiskRaft struct {
 
 	nodehost       *dragonboat.NodeHost
 	clusterSession map[uint64]*client.Session
-
-	kvs      chan *store.Command
-	exitChan chan struct{}
-	wg       sync.WaitGroup
+	nodeUsers      map[uint64]dragonboat.INodeUser
 
 	clusterMetrics map[uint64]*ondiskMetrics
 	lock           sync.RWMutex
@@ -37,9 +35,7 @@ func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
 		RaftNodePeers:  peers,
 		RaftClusterIDs: clusterIDs,
 		clusterSession: make(map[uint64]*client.Session),
-		kvs:            make(chan *store.Command, 10),
-		exitChan:       make(chan struct{}),
-		wg:             sync.WaitGroup{},
+		nodeUsers:      make(map[uint64]dragonboat.INodeUser),
 
 		clusterMetrics: make(map[uint64]*ondiskMetrics),
 		lock:           sync.RWMutex{},
@@ -92,8 +88,8 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 			ElectionRTT:        10,
 			HeartbeatRTT:       1,
 			CheckQuorum:        true,
-			SnapshotEntries:    1,
-			CompactionOverhead: 1,
+			SnapshotEntries:    100,
+			CompactionOverhead: 10,
 		}
 
 		if err := nh.StartOnDiskCluster(peers, join, NewDiskKV, rc); err != nil {
@@ -103,45 +99,72 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 		disk.clusterSession[clusterID] = disk.nodehost.GetNoOPSession(clusterID)
 	}
 
-	go disk.start()
+	for _, clusterID := range disk.RaftClusterIDs {
+		nodeuser, err := disk.nodehost.GetNodeUser(clusterID)
+		if err != nil {
+			panic(err)
+		}
+		disk.nodeUsers[clusterID] = nodeuser
+	}
 
 	return nil
 }
 
-func (disk *OnDiskRaft) start() {
-	disk.wg.Add(1)
-	for {
-		select {
-		case <-disk.exitChan:
-			goto exit
-		case kv := <-disk.kvs:
-			idx := kv.HashKey % uint64(len(disk.RaftClusterIDs))
-			clusterID := disk.RaftClusterIDs[idx]
-			cs := disk.clusterSession[clusterID]
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-
-			cmdBytes, _ := kv.Marshal()
-			_, err := disk.nodehost.SyncPropose(ctx, cs, cmdBytes)
-			ok := true
-			if err != nil {
-				ok = false
-			}
-
-			disk.lock.Lock()
-			metrics := disk.clusterMetrics[clusterID]
-			metrics.add(1, ok)
-			disk.lock.Unlock()
-
-			cancel()
+func checkRequestState(rs *dragonboat.RequestState) (sm.Result, error) {
+	select {
+	case r := <-rs.CompletedC:
+		if r.Completed() {
+			return r.GetResult(), nil
+		} else if r.Rejected() {
+			return sm.Result{}, dragonboat.ErrRejected
+		} else if r.Timeout() {
+			return sm.Result{}, dragonboat.ErrTimeout
+		} else if r.Terminated() {
+			return sm.Result{}, dragonboat.ErrClusterClosed
+		} else if r.Dropped() {
+			return sm.Result{}, dragonboat.ErrClusterNotReady
 		}
 	}
 
-exit:
-	disk.wg.Done()
+	return sm.Result{}, nil
 }
 
-func (disk *OnDiskRaft) Write(kv *store.Command) {
-	disk.kvs <- kv
+func (disk *OnDiskRaft) Write(kv *store.Command) error {
+	idx := kv.HashKey % uint64(len(disk.RaftClusterIDs))
+	clusterID := disk.RaftClusterIDs[idx]
+	cs := disk.clusterSession[clusterID]
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+
+	cmdBytes, _ := kv.Marshal()
+
+	_, err := disk.nodehost.SyncPropose(ctx, cs, cmdBytes)
+
+	cancel()
+	return err
+}
+
+func (disk *OnDiskRaft) AdvanceWrite(kv *store.Command) error {
+	idx := kv.HashKey % uint64(len(disk.RaftClusterIDs))
+	clusterID := disk.RaftClusterIDs[idx]
+	cs := disk.clusterSession[clusterID]
+
+	cmdBytes, _ := kv.Marshal()
+
+	rs, err := disk.nodeUsers[clusterID].Propose(cs, cmdBytes, 3*time.Second)
+
+	defer func() {
+		if rs != nil {
+			rs.Release()
+		}
+	}()
+
+	if err != nil {
+		return err
+	}
+
+	_, err = checkRequestState(rs)
+
+	return err
 }
 
 // SyncRead 线性读
@@ -173,10 +196,10 @@ func (disk *OnDiskRaft) ReadLocal(key string, hashKey uint64) (*store.RaftAttrib
 }
 
 func (disk *OnDiskRaft) Stop() {
-	close(disk.exitChan)
 	disk.nodehost.Stop()
 
 	disk.clusterMetrics = make(map[uint64]*ondiskMetrics)
+	disk.clusterSession = make(map[uint64]*client.Session)
 }
 
 // MetricsInfo 用于做写入次数的统计

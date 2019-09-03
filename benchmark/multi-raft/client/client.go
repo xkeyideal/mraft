@@ -57,7 +57,7 @@ func (sc *SimpleClient) Write(b []byte) (int, error) {
 func (sc *SimpleClient) writeCommand(attr *store.RaftAttribute) error {
 	sc.mu.Lock()
 
-	_, err := attr.WriteTo(sc)
+	_, err := attr.WriteTo2(sc)
 	if err != nil {
 		fmt.Println("Write failed,", err.Error())
 		sc.mu.Unlock()
@@ -98,6 +98,7 @@ func (sc *SimpleClient) handleRecv() {
 	for {
 		sc.conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		_, err = sc.reader.Read(sz)
+		fmt.Println("Read:", err)
 		if err != nil {
 			if err == io.EOF {
 				err = nil

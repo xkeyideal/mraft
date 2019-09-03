@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	server, err := server.NewSimpleServer("10.101.44.4:25700")
+	server, err := server.NewSimpleServer("10.101.44.4:25701")
 	if err != nil {
 		panic(err)
 	}
