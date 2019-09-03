@@ -30,10 +30,10 @@ func NewStore(dbdir string) (*Store, error) {
 	opts.SetWalSizeLimitMb(3000)                      // rocksdb的wal日志大小
 	opts.SetWriteBufferSize(1 << 29)                  // 写入缓冲区的大小
 	opts.SetInfoLogLevel(gorocksdb.ErrorInfoLogLevel) // rocksdb日志级别
-	// opts.SetBytesPerSync(1048576)
-	// opts.SetMaxBackgroundFlushes(2)
-	// opts.SetMaxBackgroundCompactions(4)
-	// opts.SetLevelCompactionDynamicLevelBytes(true)
+	opts.SetBytesPerSync(1048576)
+	opts.SetMaxBackgroundFlushes(2)
+	opts.SetMaxBackgroundCompactions(4)
+	opts.SetLevelCompactionDynamicLevelBytes(true)
 
 	wo := gorocksdb.NewDefaultWriteOptions()
 	wo.SetSync(true)
@@ -110,6 +110,8 @@ func (db *Store) NewSnapshot() *gorocksdb.Snapshot {
 
 func (db *Store) NewIterator(ss *gorocksdb.Snapshot) *gorocksdb.Iterator {
 	ro := gorocksdb.NewDefaultReadOptions()
+	// Callers may wish to set this field to false for bulk scans. Default: true
+	ro.SetFillCache(false)
 	ro.SetSnapshot(ss)
 
 	return db.db.NewIterator(ro)

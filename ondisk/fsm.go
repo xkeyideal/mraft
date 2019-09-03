@@ -170,9 +170,9 @@ func (d *DiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.W
 	iter := store.NewIterator(ss)
 	defer iter.Close()
 
-	dataSize := make([]byte, 8)
-	keySize := make([]byte, 8)
-	valSize := make([]byte, 8)
+	dataSize := make([]byte, 4)
+	keySize := make([]byte, 4)
+	valSize := make([]byte, 4)
 	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
 		key := iter.Key().Data()
 		val := iter.Value().Data()
@@ -180,12 +180,12 @@ func (d *DiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.W
 		kl := iter.Key().Size()
 		vl := iter.Value().Size()
 
-		binary.LittleEndian.PutUint64(dataSize, uint64(kl+vl+8+8))
+		binary.LittleEndian.PutUint32(dataSize, uint32(kl+vl+4+4))
 		if _, err := w.Write(dataSize); err != nil {
 			return err
 		}
 
-		binary.LittleEndian.PutUint64(keySize, uint64(kl))
+		binary.LittleEndian.PutUint32(keySize, uint32(kl))
 		if _, err := w.Write(keySize); err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func (d *DiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.W
 			return err
 		}
 
-		binary.LittleEndian.PutUint64(valSize, uint64(vl))
+		binary.LittleEndian.PutUint32(valSize, uint32(vl))
 		if _, err := w.Write(valSize); err != nil {
 			return err
 		}
@@ -204,7 +204,7 @@ func (d *DiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.W
 		}
 	}
 
-	binary.LittleEndian.PutUint64(dataSize, uint64(len(endSignal)))
+	binary.LittleEndian.PutUint32(dataSize, uint32(len(endSignal)))
 	if _, err := w.Write(dataSize); err != nil {
 		return err
 	}
@@ -247,13 +247,13 @@ func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 			return err
 		}
 
-		sz := make([]byte, 8)
+		sz := make([]byte, 4)
 		wb := gorocksdb.NewWriteBatch()
 		for {
 			if _, err := io.ReadFull(r, sz); err != nil {
 				return err
 			}
-			dataSize := binary.LittleEndian.Uint64(sz)
+			dataSize := binary.LittleEndian.Uint32(sz)
 			data := make([]byte, dataSize)
 			if _, err := io.ReadFull(r, data); err != nil {
 				return err
@@ -263,11 +263,11 @@ func (d *DiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
 				break
 			}
 
-			kl := binary.LittleEndian.Uint64(data[:8])
-			key := data[8 : kl+8]
-			vl := binary.LittleEndian.Uint64(data[kl+8 : kl+16])
-			val := data[kl+16:]
-			if uint64(len(val)) != vl {
+			kl := binary.LittleEndian.Uint32(data[:4])
+			key := data[4 : kl+4]
+			vl := binary.LittleEndian.Uint32(data[kl+4 : kl+8])
+			val := data[kl+8:]
+			if uint32(len(val)) != vl {
 				continue
 			}
 			wb.Put(key, val)
