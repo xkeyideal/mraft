@@ -4,11 +4,9 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 ### 示例说明
 
-本示例是对[dragonboat-example](https://github.com/lni/dragonboat-example)中ondisk示例的重写，改变其代码结构。
+本示例是对[dragonboat-example](https://github.com/lni/dragonboat-example)中ondisk示例的重写，改变其代码结构，状态机的数据协议采用自定义的二进制协议，尽可能的提高读写性能。
 
-本示例，简单的CURD测试通过，未进行压测。
-
-有兴趣者，可以参考。
+本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.1.2版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
 
 ### 序列化工具
 
@@ -26,6 +24,8 @@ multi-raft的网络协议与数据格式均使用simple-server中相同的方式
 
 multi-raft的压测协议与数据格式均使用simple-server中相同的方式，压测结果详见[raft-server-benchmark](https://github.com/xkeyideal/mraft/blob/master/benchmark/multi-raft/raft-server-benchmark.md)
 
+压测数据用例使用的是[代码自动化数据生成工具](https://github.com/xkeyideal/mraft/blob/master/benchmark/generate/generate-data.go)，每条数据的数据量大约在2KB以上，具体未做统计。
+
 ### 压测机器说明
 
 机器采用的是开发环境的机器，操作系统macOS High Sierra，`Darwin Kernel Version 18.6.0 root:xnu-4903.261.4~2/RELEASE_X86_64 x86_64 i386 iMac14,2 Darwin`
@@ -34,8 +34,49 @@ CPU：3.29 GHz Intel Core i5
 
 内存：20 GB 1600 MHz DDR3
 
-磁盘：256GB SATA SSD
+磁盘：256GB Intel SATA SSD
 
+参考了[dragonboat](https://github.com/lni/dragonboat)作者的文章[从共识算法开谈 - 硬盘性能的最大几个误解](https://zhuanlan.zhihu.com/p/55658164)，
+特对开发环境的磁盘的fsync()落盘写性能使用**pg_test_fsync**工具进行测试
+
+```
+5 seconds per test
+Direct I/O is not supported on this platform.
+
+Compare file sync methods using one 8kB write:
+(in wal_sync_method preference order, except fdatasync is Linux's default)
+        open_datasync                     15293.184 ops/sec      65 usecs/op
+        fdatasync                         15042.152 ops/sec      66 usecs/op
+        fsync                             15062.644 ops/sec      66 usecs/op
+        fsync_writethrough                   87.954 ops/sec   11370 usecs/op
+        open_sync                         15060.335 ops/sec      66 usecs/op
+
+Compare file sync methods using two 8kB writes:
+(in wal_sync_method preference order, except fdatasync is Linux's default)
+        open_datasync                      7342.068 ops/sec     136 usecs/op
+        fdatasync                         11375.823 ops/sec      88 usecs/op
+        fsync                             11035.212 ops/sec      91 usecs/op
+        fsync_writethrough                   87.290 ops/sec   11456 usecs/op
+        open_sync                          6943.205 ops/sec     144 usecs/op
+
+Compare open_sync with different write sizes:
+(This is designed to compare the cost of writing 16kB in different write
+open_sync sizes.)
+         1 * 16kB open_sync write         11774.650 ops/sec      85 usecs/op
+         2 *  8kB open_sync writes         7335.006 ops/sec     136 usecs/op
+         4 *  4kB open_sync writes         4147.836 ops/sec     241 usecs/op
+         8 *  2kB open_sync writes         2048.232 ops/sec     488 usecs/op
+        16 *  1kB open_sync writes         1015.277 ops/sec     985 usecs/op
+
+Test if fsync on non-write file descriptor is honored:
+(If the times are similar, fsync() can sync data written on a different
+descriptor.)
+        write, fsync, close                9232.970 ops/sec     108 usecs/op
+        write, close, fsync               11632.603 ops/sec      86 usecs/op
+
+Non-sync'ed 8kB writes:
+        write                             14077.617 ops/sec      71 usecs/op
+```
 
 ### 启动方式
 
