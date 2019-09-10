@@ -23,17 +23,29 @@ func NewStore(dbdir string) (*Store, error) {
 
 	opts := gorocksdb.NewDefaultOptions()
 
+	opts.SetNumLevels(6)
 	opts.SetBlockBasedTableFactory(bbto)
 	opts.SetCreateIfMissing(true)
 	opts.SetUseFsync(true)
-	opts.SetMaxBackgroundCompactions(8)               // 后台整理线程的个数, rocksdb的gc
-	opts.SetWalSizeLimitMb(3000)                      // rocksdb的wal日志大小
-	opts.SetWriteBufferSize(1 << 29)                  // 写入缓冲区的大小
+	opts.SetWalSizeLimitMb(3000)               // rocksdb的wal日志大小
+	opts.SetWriteBufferSize(128 * 1024 * 1024) // 写入缓冲区的大小, 128MB
+	opts.SetMaxWriteBufferNumber(4)
 	opts.SetInfoLogLevel(gorocksdb.ErrorInfoLogLevel) // rocksdb日志级别
 	opts.SetBytesPerSync(1048576)
-	opts.SetMaxBackgroundFlushes(2)
-	opts.SetMaxBackgroundCompactions(4)
+	opts.SetMaxBackgroundFlushes(4)
+	opts.SetMaxBackgroundCompactions(12) // 后台整理线程的个数, rocksdb的gc
 	opts.SetLevelCompactionDynamicLevelBytes(true)
+
+	// rocksdb_level0_file_num_compaction_trigger = 4
+	// rocksdb_level0_slowdown_writes_trigger = 30
+	// rocksdb_level0_stop_writes_trigger = 60
+	opts.SetLevel0FileNumCompactionTrigger(4)
+	opts.SetLevel0SlowdownWritesTrigger(30)
+	opts.SetLevel0StopWritesTrigger(60)
+	opts.SetTargetFileSizeBase(2 * 1024 * 1024) // 2MB
+	opts.SetTargetFileSizeMultiplier(1)
+	opts.SetMaxBytesForLevelBase(20 * 1024 * 1024) // 20MB
+	opts.SetMaxBytesForLevelMultiplier(10)
 
 	wo := gorocksdb.NewDefaultWriteOptions()
 	wo.SetSync(true)
