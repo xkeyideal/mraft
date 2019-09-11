@@ -134,6 +134,10 @@ func (db *Store) BatchWrite(wb *gorocksdb.WriteBatch) error {
 	return db.db.Write(db.wo, wb)
 }
 
+func (db *Store) Write(key, value []byte) error {
+	return db.db.Put(db.wo, key, value)
+}
+
 func (db *Store) NewSnapshot() *gorocksdb.Snapshot {
 	db.mu.RLock()
 	defer db.mu.RUnlock()

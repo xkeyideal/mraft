@@ -70,6 +70,8 @@ github.com/valyala/fastrand v1.0.0 h1:LUKT9aKer2dVQNUi3waewTbKV+7H17kvWFNKs2Obdk
 github.com/valyala/fastrand v1.0.0/go.mod h1:HWqCzkrkg6QXT8V2EXWvXCoow7vLwOFN002oeRzjapQ=
 github.com/valyala/histogram v1.0.1 h1:FzA7n2Tz/wKRMejgu3PV1vw3htAklTjjuoI6z3d4KDg=
 github.com/valyala/histogram v1.0.1/go.mod h1:lQy0xA4wUz2+IUnf97SivorsJIp8FxsnRd6x25q7Mto=
+github.com/xkeyideal/gokit v1.4.0 h1:wptNHH4XiEg8QUT5QPG8F0ofFC/TTdn1TuBP4Xvudkk=
+github.com/xkeyideal/gokit v1.4.0/go.mod h1:JVlsW0u6xxu1OOYYUwTh6rh4pVqf4m6jrM0mjlcenJQ=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/exp v0.0.0-20190426190305-956cc1757749 h1:Bduxdpx1O6126WsH6F6NwKywZ/FPncphlTduoPxFG78=
 golang.org/x/exp v0.0.0-20190426190305-956cc1757749/go.mod h1:ZjyILWgesfNpC6sMxTJOJm9Kp84zZh5NQWvqDGG3Qr8=
