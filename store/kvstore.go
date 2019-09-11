@@ -145,6 +145,10 @@ func (db *Store) NewSnapshot() *gorocksdb.Snapshot {
 	return db.db.NewSnapshot()
 }
 
+func (db *Store) ReleaseSnapshot(snap *gorocksdb.Snapshot) {
+	db.db.ReleaseSnapshot(snap)
+}
+
 func (db *Store) NewIterator(ss *gorocksdb.Snapshot) *gorocksdb.Iterator {
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Callers may wish to set this field to false for bulk scans. Default: true

@@ -183,6 +183,7 @@ func (d *SimpleDiskKV) PrepareSnapshot() (interface{}, error) {
 func (d *SimpleDiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.Writer) error {
 	iter := store.NewIterator(ss)
 	defer iter.Close()
+	defer store.ReleaseSnapshot(ss)
 
 	dataSize := make([]byte, 4)
 	keySize := make([]byte, 4)
