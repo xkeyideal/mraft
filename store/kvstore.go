@@ -19,7 +19,8 @@ type Store struct {
 
 func NewStore(dbdir string) (*Store, error) {
 	bbto := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbto.SetBlockCache(gorocksdb.NewLRUCache(1 << 30)) // 内存缓存大小
+	bbto.SetBlockCache(gorocksdb.NewLRUCache(640 * 1024 * 1024)) // 内存缓存大小 640MB
+	bbto.SetBlockSize(512 * 1024)                                // block大小 512KB
 
 	opts := gorocksdb.NewDefaultOptions()
 
@@ -30,22 +31,25 @@ func NewStore(dbdir string) (*Store, error) {
 	opts.SetWalSizeLimitMb(3000)               // rocksdb的wal日志大小
 	opts.SetWriteBufferSize(128 * 1024 * 1024) // 写入缓冲区的大小, 128MB
 	opts.SetMaxWriteBufferNumber(4)
+	opts.SetMinWriteBufferNumberToMerge(2)
 	opts.SetInfoLogLevel(gorocksdb.ErrorInfoLogLevel) // rocksdb日志级别
 	opts.SetBytesPerSync(1048576)
-	opts.SetMaxBackgroundFlushes(4)
+	opts.SetMaxBackgroundFlushes(4)      // 后台flush线程数
 	opts.SetMaxBackgroundCompactions(12) // 后台整理线程的个数, rocksdb的gc
 	opts.SetLevelCompactionDynamicLevelBytes(true)
 
 	// rocksdb_level0_file_num_compaction_trigger = 4
 	// rocksdb_level0_slowdown_writes_trigger = 30
 	// rocksdb_level0_stop_writes_trigger = 60
-	opts.SetLevel0FileNumCompactionTrigger(4)
-	opts.SetLevel0SlowdownWritesTrigger(30)
-	opts.SetLevel0StopWritesTrigger(60)
+	opts.SetLevel0FileNumCompactionTrigger(4)   // Level-0层 当有4个未进行Compact的文件时，达到触发Compact的条件
+	opts.SetLevel0SlowdownWritesTrigger(30)     // Level-0层 当有30个未进行Compact的文件时，触发RocksDB，减慢写入速度
+	opts.SetLevel0StopWritesTrigger(60)         // Level-0层 当有60个未进行Compact的文件时，触发RocksDB停止写入文件，此时会尽快的Compact Level-0层文件
 	opts.SetTargetFileSizeBase(2 * 1024 * 1024) // 2MB
 	opts.SetTargetFileSizeMultiplier(1)
-	opts.SetMaxBytesForLevelBase(20 * 1024 * 1024) // 20MB
-	opts.SetMaxBytesForLevelMultiplier(10)
+
+	// Level-1 层 文件总大小由 max_bytes_for_level_base 参数控制，而 Level-2 层的大小通过： Level_max_bytes[N] = Level_max_bytes[N-1] * max_bytes_for_level_multiplier^(N-1)*max_bytes_for_level_multiplier_additional[N-1]
+	opts.SetMaxBytesForLevelBase(20 * 1024 * 1024) // 20MB 用于指定Level-1层总大小，超过这个值满足触发Compact条件
+	opts.SetMaxBytesForLevelMultiplier(10)         // 每一层最大Bytes 乘法因子
 
 	wo := gorocksdb.NewDefaultWriteOptions()
 	wo.SetSync(true)
