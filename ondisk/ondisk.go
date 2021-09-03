@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"mraft/store"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -46,6 +45,24 @@ func NewOnDiskRaft(peers map[uint64]string, clusterIDs []uint64) *OnDiskRaft {
 	}
 
 	return dr
+}
+
+func (disk *OnDiskRaft) ClusterReady(clusterId uint64) bool {
+	var _, success, err = disk.nodehost.GetLeaderID(clusterId)
+	if err != nil {
+		return false
+	}
+
+	return success
+}
+
+func (disk *OnDiskRaft) ClusterAllReady() bool {
+	for _, clusterID := range disk.RaftClusterIDs {
+		if !disk.ClusterReady(clusterID) {
+			return false
+		}
+	}
+	return true
 }
 
 func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string, join bool) error {
@@ -268,20 +285,35 @@ func (disk *OnDiskRaft) RaftAddNode(nodeID uint64, nodeAddr string) error {
 	}
 
 	for _, clusterID := range disk.RaftClusterIDs {
-		rs, err := disk.nodehost.RequestAddNode(clusterID, nodeID, nodeAddr, 0, 5*time.Second)
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ms, err := disk.nodehost.SyncGetClusterMembership(ctx, uint64(clusterID))
 		if err != nil {
 			return err
 		}
 
-		select {
-		case r := <-rs.CompletedC:
-			if r.Completed() {
-				fmt.Fprintf(os.Stdout, "membership change completed successfully\n")
-			} else {
-				return fmt.Errorf("<%d-%d> membership change failed", nodeID, clusterID)
-			}
+		ctx2, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		err = disk.nodehost.SyncRequestAddNode(ctx2, clusterID, nodeID, nodeAddr, ms.ConfigChangeID)
+		if err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+func (disk *OnDiskRaft) RaftRemoveNode(nodeId uint64) error {
+	for _, clusterID := range disk.RaftClusterIDs {
+		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ms, err := disk.nodehost.SyncGetClusterMembership(ctx, uint64(clusterID))
+		if err != nil {
+			return err
+		}
+
+		ctx2, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		err = disk.nodehost.SyncRequestDeleteNode(ctx2, uint64(clusterID), nodeId, ms.ConfigChangeID)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }

@@ -10,13 +10,13 @@ type OnDiskRaftConfig struct {
 
 func NewOnDiskRaftConfig() *OnDiskRaftConfig {
 	return &OnDiskRaftConfig{
-		RaftDataDir: "/Volumes/ST1000/mraft-ondisk",
+		RaftDataDir: "/Users/xkey/test/mraft-ondisk1",
 		RaftNodePeers: map[uint64]string{
-			10000: "10.101.44.4:54000",
-			10001: "10.101.44.4:54100",
-			10002: "10.101.44.4:54200",
-			//10003: "10.101.44.4:54300",
+			10000: "10.181.20.34:11000",
+			10001: "10.181.20.34:11100",
+			10002: "10.181.20.34:11200",
+			//10004: "10.181.20.34:11400",
 		},
-		RaftClusterIDs: []uint64{254000, 254100, 254200},
+		RaftClusterIDs: []uint64{14000, 14100, 14200},
 	}
 }

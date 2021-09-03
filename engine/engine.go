@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"mraft/config"
 	"mraft/ondisk"
 	"mraft/raftd"
@@ -33,7 +34,12 @@ func NewEngine(nodeID uint64, port string) *Engine {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	nh := ondisk.NewOnDiskRaft(cfg.RaftNodePeers, cfg.RaftClusterIDs)
+	var nh *ondisk.OnDiskRaft
+	if nodeID == 10003 || nodeID == 10004 || nodeID == 5 {
+		nh = ondisk.NewOnDiskRaft(map[uint64]string{}, cfg.RaftClusterIDs)
+	} else {
+		nh = ondisk.NewOnDiskRaft(cfg.RaftNodePeers, cfg.RaftClusterIDs)
+	}
 
 	engine := &Engine{
 		nodeID:      nodeID,
@@ -60,10 +66,26 @@ func (engine *Engine) Start() {
 	nodeAddr := ""
 	if engine.nodeID == 10003 {
 		join = true
-		nodeAddr = "10.101.44.4:54300"
+		nodeAddr = "10.181.20.34:11300"
+	} else if engine.nodeID == 10004 {
+		join = true
+		nodeAddr = "10.181.20.34:11400"
+	} else if engine.nodeID == 10005 {
+		join = true
+		nodeAddr = "10.181.20.34:11500"
 	}
 
 	engine.nh.Start(engine.raftDataDir, engine.nodeID, nodeAddr, join)
+
+	// 等待raft集群ready
+	for {
+		if engine.nh.ClusterAllReady() {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	log.Println("cluster all ready")
 
 	if err := engine.server.ListenAndServe(); err != nil {
 		panic(err.Error())

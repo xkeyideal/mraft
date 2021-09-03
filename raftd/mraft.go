@@ -120,6 +120,21 @@ func (mh *MRaftHandle) JoinNode(c *gin.Context) {
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }
 
+func (mh *MRaftHandle) DelNode(c *gin.Context) {
+	nodeID, err := strconv.ParseUint(c.Query("nodeID"), 10, 64)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	err = mh.raft.RaftRemoveNode(nodeID)
+	if err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+	SetStrResp(http.StatusOK, 0, "", "OK", c)
+}
+
 func (mh *MRaftHandle) RaftMetrics(c *gin.Context) {
 	SetStrResp(http.StatusOK, 0, "", mh.raft.MetricsInfo(), c)
 }
