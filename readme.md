@@ -2,11 +2,19 @@
 
 multi-group raft的简单使用示例，由于对[dragonboat](https://github.com/lni/dragonboat)的理解有限，可能存在部分错误，还望指出。
 
+### 生产ready的样例
+
+提供生产ready的样例，[productready](https://github.com/xkeyideal/mraft/blob/master/productready/README.md)
+
+1. 提供了完整的采用`rocksdb`作为业务数据存储的状态机代码，此代码已用于生产环境。
+2. 提供了支持动态配置的启动方式，提供了`dragonboat`配置需处理节点ID等问题的一个解决思路
+3. 程序化的提供了新增raft节点的方案
+
 ### 示例说明
 
 本示例是对[dragonboat-example](https://github.com/lni/dragonboat-example)中ondisk示例的重写，改变其代码结构，状态机的数据协议采用自定义的二进制协议，尽可能的提高读写性能。
 
-本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.1.2版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
+本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.3.2版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
 
 ### 序列化工具
 

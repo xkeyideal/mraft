@@ -22,6 +22,7 @@ var (
 	native          bool
 	pidFile                = "raft.pid"
 	raftPort        uint16 = 0
+	joinUrl         string
 
 	tryRun  = false
 	version = false
@@ -71,6 +72,7 @@ var cli = &cobra.Command{
 			Native:    native,
 			IP:        discoverAddress,
 			RaftPort:  raftPort,
+			JoinUrl:   joinUrl,
 		}
 		Run(cfg)
 	},
@@ -82,12 +84,11 @@ func init() {
 	cli.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "set log level to error.")
 	cli.PersistentFlags().BoolVarP(&tryRun, "try-run", "t", false, "dump config but not serve.")
 
-	cli.PersistentFlags().StringVarP(&dataDir, "data-dir", "d", "./data", "set raft data dir")
-
-	cli.PersistentFlags().StringVarP(&discoverAddress, "discover-address", "i", discoverAddress, "address exported to others")
-	cli.PersistentFlags().Uint16VarP(&raftPort, "port-cluster", "p", 13890, "raft port exported to cluster, port-grpc=raft-grpc + 1")
-
 	cli.Flags().StringArrayVarP(&clusterList, "cluster", "c", nil, "add cluster node <host:port> | <host:port,host:port...>")
+	cli.PersistentFlags().StringVarP(&discoverAddress, "discover-address", "i", discoverAddress, "address exported to others")
+	cli.PersistentFlags().Uint16VarP(&raftPort, "port-cluster", "p", 13890, "raft port exported to cluster, http-port=raft-port + 1")
+	cli.PersistentFlags().StringVarP(&joinUrl, "join-url", "u", "", "set one raft cluster node join url")
+	cli.PersistentFlags().StringVarP(&dataDir, "data-dir", "d", "./data", "set raft data dir")
 
 	_ = cli.MarkPersistentFlagDirname("data-dir")
 

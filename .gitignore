@@ -9,6 +9,8 @@ tsconfig.json
 jsconfig.json
 idl/
 rpc/
+productready/cmd/main/data
+productready/cmd/main/main
 
 ### Linux ###
 *~
