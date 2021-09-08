@@ -106,12 +106,18 @@ func (s *Store) NewSnapshotDir() (string, error) {
 	}
 	defer cp.Destroy()
 
-	id := uuid.New().String()
-	path := filepath.Join(s.path, id)
-	if err := os.MkdirAll(path, os.ModePerm); err != nil {
-		return "", err
+	// when dragonboat generate snapshot the storage diretory's parent diretory must be exist
+	// but the storage diretory must be not exist
+	// for example, the snapshot store in /data/raft/data_node_127.0.0.1:9090/1/uuid_123
+	// the parent diretory /data/raft/data_node_127.0.0.1:9090/1 must be exist
+	if !pathIsExist(s.path) {
+		if err := os.MkdirAll(s.path, os.ModePerm); err != nil {
+			return "", err
+		}
 	}
-	path += "/"
+
+	id := uuid.New().String()
+	path := filepath.Join(s.path, id, string(os.PathSeparator))
 
 	err = cp.CreateCheckpoint(path, 0)
 	if err != nil {
@@ -343,4 +349,18 @@ func writeTo(bytes []byte, writer io.Writer) error {
 		}
 		writeSize += n
 	}
+}
+
+func pathIsExist(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		if os.IsNotExist(err) {
+			return false
+		}
+		return false
+	}
+	return true
 }
