@@ -180,7 +180,7 @@ func getRocksdbOpts(walDir, logDir string) (*gorocksdb.Options, error) {
 
 // dbPath:base/data_node_nodeId/clusterId/current
 func createOrOpenRocksDB(dbPath string, cfs []string) (*gorocksdb.DB, map[string]*gorocksdb.ColumnFamilyHandle, error) {
-	cfs = append(cfs, "default")
+	cfs = append(cfs, indexKeyCf)
 
 	// base/data_node_nodeId/clusterId/current/data
 	dataPath := filepath.Join(dbPath, "data")
@@ -224,7 +224,7 @@ func createOrOpenRocksDB(dbPath string, cfs []string) (*gorocksdb.DB, map[string
 }
 
 func openReadonlyRocksDB(dbPath string, cfs []string) (*gorocksdb.DB, map[string]*gorocksdb.ColumnFamilyHandle, error) {
-	cfs = append(cfs, "default")
+	cfs = append(cfs, indexKeyCf)
 
 	// base/data_node_nodeId/clusterId/current/wal
 	walPath := filepath.Join(dbPath, "wal")

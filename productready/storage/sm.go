@@ -10,6 +10,7 @@ import (
 	"github.com/tecbot/gorocksdb"
 )
 
+var indexKeyCf = "__index_default_cf__"
 var indexKeyPrefix = []byte("disk_kv_applied_index")
 
 type RocksDBStateMachine struct {
@@ -32,7 +33,7 @@ func (r *RocksDBStateMachine) Open(stopChan <-chan struct{}) (uint64, error) {
 	case <-stopChan:
 		return 0, sm.ErrOpenStopped
 	default:
-		data, err := r.store.GetUint64("default", r.indexKeyPrefix)
+		data, err := r.store.GetUint64(indexKeyCf, r.indexKeyPrefix)
 		return data, err
 	}
 }

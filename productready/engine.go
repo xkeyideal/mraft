@@ -40,7 +40,7 @@ func NewEngine(dcfg *config.DynamicConfig) *Engine {
 
 	raftStorage, err := storage.NewStorage(
 		cfg.DeploymentID,
-		int(cfg.NodeID),
+		cfg.NodeID,
 		fmt.Sprintf("%s:%s", cfg.IP, cfg.RaftPort),
 		cfg.DataDir,
 		cfs,

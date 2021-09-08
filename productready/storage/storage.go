@@ -43,11 +43,12 @@ type Storage struct {
 
 const clusterSize = 3
 
-func NewStorage(deploymentId uint64, nodeId int, addr string,
+func NewStorage(deploymentId, nodeId uint64, addr string,
 	baseDir string, cfs []string,
 	join bool, initialMembers map[uint64]string) (*Storage, error) {
+	// join node initial members must be empty
 	if join {
-		initialMembers = make(map[uint64]string)
+		initialMembers = map[uint64]string{}
 	}
 
 	// raftDir: base/raft_node_nodeId
@@ -80,16 +81,18 @@ func NewStorage(deploymentId uint64, nodeId int, addr string,
 		if err != nil {
 			return nil, err
 		}
-		stateMachine, err := newRocksDBStateMachine(clusterId, uint64(nodeId), store)
 
+		stateMachine, err := newRocksDBStateMachine(clusterId, uint64(nodeId), store)
 		if err != nil {
 			return nil, err
 		}
+
 		if err := nh.StartOnDiskCluster(initialMembers, join, func(_ uint64, _ uint64) sm.IOnDiskStateMachine {
 			return stateMachine
 		}, rc); err != nil {
 			return nil, err
 		}
+
 		csMap[clusterId] = nh.GetNoOPSession(clusterId)
 		smMap[clusterId] = store
 	}
@@ -161,13 +164,16 @@ func (s *Storage) ClusterAllReady() bool {
 
 func (s *Storage) AddRaftObserver(nodeId uint64, addr string) error {
 	for clusterId := 0; clusterId < clusterSize; clusterId++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		ms, err := s.nh.SyncGetClusterMembership(ctx, uint64(clusterId))
 		cancel()
 		if err != nil {
 			return err
 		}
+
+		ctx, cancel = context.WithTimeout(context.Background(), 4*time.Second)
 		err = s.nh.SyncRequestAddObserver(ctx, uint64(clusterId), nodeId, addr, ms.ConfigChangeID)
+		cancel()
 		if err != nil {
 			return err
 		}
@@ -236,15 +242,14 @@ func (s *Storage) GetMembership(ctx context.Context) ([]*MemberInfo, error) {
 }
 
 func (s *Storage) getSession(hashKey string) *client.Session {
-	var clusterId = getClusterId(hashKey)
-	return s.csMap[clusterId]
+	return s.csMap[getClusterId(hashKey)]
 }
 
 func getClusterId(hashKey string) uint64 {
 	return uint64(crc32.ChecksumIEEE([]byte(hashKey)) % clusterSize)
 }
 
-func initPath(path string, nodeId int) (string, string, error) {
+func initPath(path string, nodeId uint64) (string, string, error) {
 	raftPath := filepath.Join(path, fmt.Sprintf("raft_node_%d", nodeId))
 	dataPath := filepath.Join(path, fmt.Sprintf("data_node_%d", nodeId))
 	if err := os.MkdirAll(raftPath, os.ModePerm); err != nil {
@@ -314,10 +319,10 @@ func buildNodeHostConfig(deploymentId uint64, raftDir string, addr, listenAddr s
 	}
 }
 
-func buildRaftConfig(nodeId int, clusterId uint64) config.Config {
+func buildRaftConfig(nodeId, clusterId uint64) config.Config {
 	return config.Config{
 		//当前节点的ID
-		NodeID: uint64(nodeId),
+		NodeID: nodeId,
 
 		//当前节点的分片ID,如果当前raft是多组的,那么这个地方是指定当前组的ID
 		ClusterID: clusterId,
