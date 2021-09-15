@@ -8,7 +8,7 @@ require (
 	github.com/facebookgo/subset v0.0.0-20150612182917-8dac2c3c4870 // indirect
 	github.com/gin-gonic/gin v1.6.0
 	github.com/google/uuid v1.3.0
-	github.com/lni/dragonboat/v3 v3.3.2
+	github.com/lni/dragonboat/v3 v3.3.4
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/spf13/cobra v1.2.1
 	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c
@@ -16,7 +16,7 @@ require (
 	github.com/v2pro/plz v0.0.0-20200805122259-422184e41b6e // indirect
 	github.com/v2pro/quokka v0.0.0-20171201153428-382cb39c6ee6 // indirect
 	github.com/v2pro/wombat v0.0.0-20180402055224-a56dbdcddef2 // indirect
-	github.com/xkeyideal/gokit v1.4.0
+	github.com/xkeyideal/gokit v1.4.2
 )
 
 require (

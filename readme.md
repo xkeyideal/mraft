@@ -14,7 +14,7 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 本示例是对[dragonboat-example](https://github.com/lni/dragonboat-example)中ondisk示例的重写，改变其代码结构，状态机的数据协议采用自定义的二进制协议，尽可能的提高读写性能。
 
-本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.3.2版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
+本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.3.4版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
 
 ### 序列化工具
 
@@ -112,6 +112,8 @@ clusters := []uint64{254000, 254100, 254200}
 HTTP服务采用[gin](https://github.com/gin-gonic/gin)
 
 ### RequestAddNode 向集群添加节点的注意事项
+
+详细的`dragonboat raft` 添加集群节点的示例请参考[productready](https://github.com/xkeyideal/mraft/blob/master/productready/README.md)
 
 1. 先在集群中调用添加节点的命令RequestAddNode
 2. 启动新增的节点，注意join节点的启动参数， nh.StartOnDiskCluster(map[uint64]string{}, true, NewDiskKV, rc)
