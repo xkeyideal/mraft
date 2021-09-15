@@ -81,7 +81,7 @@ func NewOnDiskRaftConfig(dcfg *DynamicConfig) *OnDiskRaftConfig {
 	return cfg
 }
 
-func (cfg *OnDiskRaftConfig) JoinNewNode(addr string) error {
+func (cfg *OnDiskRaftConfig) JoinNewNode(addr string) (int, error) {
 	client := httpkit.NewHttpClient(2*time.Second, 1, 2*time.Second, 3*time.Second, nil)
 
 	client = client.SetParams(map[string]string{
@@ -90,11 +90,11 @@ func (cfg *OnDiskRaftConfig) JoinNewNode(addr string) error {
 
 	resp, err := client.Get(cfg.JoinUrl)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
 	if resp.StatusCode != 200 && resp.StatusCode != 400 {
-		return fmt.Errorf("Join Node http request failed httpcode:%d", resp.StatusCode)
+		return -1, fmt.Errorf("Join Node http request failed httpcode:%d", resp.StatusCode)
 	}
 
 	respBody := struct {
@@ -104,12 +104,16 @@ func (cfg *OnDiskRaftConfig) JoinNewNode(addr string) error {
 
 	err = json.Unmarshal(resp.Body, &respBody)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
-	if respBody.Code != 0 {
-		return fmt.Errorf("Join Node failed code:%d, msg:%s", respBody.Code, respBody.Msg)
+	if respBody.Code == 0 {
+		return 0, nil
 	}
 
-	return nil
+	if respBody.Code == 1 {
+		return 1, nil
+	}
+
+	return -1, fmt.Errorf("Join Node failed code:%d, msg:%s", respBody.Code, respBody.Msg)
 }

@@ -28,9 +28,17 @@ func NewEngine(dcfg *config.DynamicConfig) *Engine {
 	cfg := config.NewOnDiskRaftConfig(dcfg)
 	if cfg.Join {
 		// 先调用webapi的http接口，告知集群有新节点加入
-		err := cfg.JoinNewNode(fmt.Sprintf("%s:%d", dcfg.IP, dcfg.RaftPort))
-		if err != nil {
+		code, err := cfg.JoinNewNode(fmt.Sprintf("%s:%d", dcfg.IP, dcfg.RaftPort))
+		if code < 0 {
 			log.Fatal("join new node", err)
+		}
+
+		// 新增的节点已经存在, 视为节点重启，根据dragonboat的文档:
+		// 当一个节点重启时，不论该节点是一个初始节点还是后续通过成员变更添加的节点，均无需再次提供初始成员信息，也不再需要设置join参数为true
+		if code == 1 {
+			cfg.Join = false
+			cfg.Peers = make(map[uint64]string)
+			log.Println("join new node restart")
 		}
 	}
 

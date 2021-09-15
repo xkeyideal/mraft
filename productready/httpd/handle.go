@@ -2,6 +2,7 @@ package httpd
 
 import (
 	"context"
+	"fmt"
 	"mraft/productready/storage"
 	"mraft/productready/utils"
 	"net/http"
@@ -79,6 +80,13 @@ func (mh *KVHandle) Delete(c *gin.Context) {
 
 func (mh *KVHandle) JoinNode(c *gin.Context) {
 	nodeAddr := c.Query("addr")
+
+	raftAddrs := mh.raftStorage.GetNodeHost()
+	for _, raftAddr := range raftAddrs {
+		if nodeAddr == raftAddr {
+			utils.SetStrResp(http.StatusOK, 1, fmt.Sprintf("%s 待加入的节点已经在集群raft节点中", nodeAddr), "OK", c)
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
