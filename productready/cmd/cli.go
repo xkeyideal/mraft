@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"mraft/productready"
-	"mraft/productready/config"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	"github.com/xkeyideal/mraft/productready"
+	"github.com/xkeyideal/mraft/productready/config"
 
 	"github.com/spf13/cobra"
 )

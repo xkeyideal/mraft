@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"mraft/benchmark/multi-raft/raft_server"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	"github.com/xkeyideal/mraft/benchmark/multi-raft/raft_server"
 )
 
 func main() {

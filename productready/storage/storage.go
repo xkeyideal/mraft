@@ -10,11 +10,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xkeyideal/mraft/productready/storage/store"
+
+	zlog "github.com/xkeyideal/mraft/logger"
+
 	"github.com/lni/dragonboat/v3"
 	"github.com/lni/dragonboat/v3/client"
 	"github.com/lni/dragonboat/v3/config"
 	"github.com/lni/dragonboat/v3/logger"
 	sm "github.com/lni/dragonboat/v3/statemachine"
+	"go.uber.org/zap"
 )
 
 func init() {
@@ -37,14 +42,15 @@ type MemberInfo struct {
 
 type Storage struct {
 	nh    *dragonboat.NodeHost
-	smMap map[uint64]*Store
+	log   *zap.Logger
+	smMap map[uint64]*store.Store
 	csMap map[uint64]*client.Session
 }
 
 const clusterSize = 3
 
 func NewStorage(deploymentId, nodeId uint64, addr string,
-	baseDir string, cfs []string,
+	baseDir, logDir string, cfs []string,
 	join bool, initialMembers map[uint64]string) (*Storage, error) {
 	// join node initial members must be empty
 	if join {
@@ -58,6 +64,8 @@ func NewStorage(deploymentId, nodeId uint64, addr string,
 		return nil, err
 	}
 
+	log := zlog.NewLogger(filepath.Join(logDir, "raft-storage.log"), zap.WarnLevel, false)
+
 	listenAddr := fmt.Sprintf("0.0.0.0:%s", strings.Split(addr, ":")[1])
 
 	nhc := buildNodeHostConfig(deploymentId, raftDir, addr, listenAddr)
@@ -69,7 +77,7 @@ func NewStorage(deploymentId, nodeId uint64, addr string,
 
 	var (
 		csMap            = make(map[uint64]*client.Session)
-		smMap            = make(map[uint64]*Store)
+		smMap            = make(map[uint64]*store.Store)
 		clusterId uint64 = 0
 	)
 
@@ -77,15 +85,25 @@ func NewStorage(deploymentId, nodeId uint64, addr string,
 		rc := buildRaftConfig(nodeId, clusterId)
 		//clusterDataPath: base/data_node_nodeId/clusterId
 		clusterDataPath := filepath.Join(dataDir, strconv.Itoa(int(clusterId)))
-		store, err := newStore(clusterDataPath, cfs)
+
+		opts := store.PebbleClusterOption{
+			Target:    addr,
+			NodeId:    nodeId,
+			ClusterId: clusterId,
+		}
+
+		// 获取pebbledb的存储目录
+		pebbleDBDir, err := store.GetPebbleDBDir(clusterDataPath)
 		if err != nil {
 			return nil, err
 		}
 
-		stateMachine, err := newRocksDBStateMachine(clusterId, uint64(nodeId), store)
+		store, err := store.NewStore(clusterId, clusterDataPath, pebbleDBDir, opts, log)
 		if err != nil {
 			return nil, err
 		}
+
+		stateMachine := newStateMachine(addr, addr, clusterId, uint64(nodeId), store)
 
 		if err := nh.StartOnDiskCluster(initialMembers, join, func(_ uint64, _ uint64) sm.IOnDiskStateMachine {
 			return stateMachine
@@ -99,6 +117,7 @@ func NewStorage(deploymentId, nodeId uint64, addr string,
 
 	return &Storage{
 		nh:    nh,
+		log:   log,
 		smMap: smMap,
 		csMap: csMap,
 	}, nil
@@ -204,6 +223,7 @@ func (s *Storage) StopRaftNode() error {
 		s.nh.Stop()
 		s.nh = nil
 	}
+	s.log.Sync()
 	return nil
 }
 
@@ -338,11 +358,11 @@ func buildRaftConfig(nodeId, clusterId uint64) config.Config {
 		// 要将选举间隔设置为1秒，则应该将ElectionRTT设置为10。启用CheckQuorum后，ElectionRTT还将定义检查领导者定额的时间间隔。
 		// 这个值是个比例,具体的RTT时间大小是RTTMillisecond*ElectionRTT,当需要选举主节点时,各个节点的随机间隔在ElectionRTT和2 * ElectionRTT,
 		// 当CheckQuorum为true,主也会每隔这个时间检查下从机数据是否符合法定人数
-		ElectionRTT: 20,
+		ElectionRTT: 60,
 
 		// HeartbeatRTT是两次心跳之间的消息RTT数。 消息RTT由NodeHostConfig.RTTMillisecond定义。 Raft论文建议心跳间隔应接近节点之间的平均RTT。
 		// 例如，假设NodeHostConfig.RTTMillisecond为100毫秒，要将心跳间隔设置为每200毫秒，则应将HeartbeatRTT设置为2。
-		HeartbeatRTT: 2,
+		HeartbeatRTT: 6,
 
 		// SnapshotEntries定义应自动对状态机进行快照的频率,可以将SnapshotEntries设置为0以禁用此类自动快照。
 		// 当SnapshotEntries设置为N时，意味着大约每N条Raft日志创建一个快照。这也意味着向跟踪者发送N个日志条目比发送快照要昂贵。

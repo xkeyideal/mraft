@@ -2,14 +2,15 @@ package main
 
 import (
 	"fmt"
-	"mraft/engine"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+
+	"github.com/xkeyideal/mraft/experiment/ondisk/engine"
 )
 
-//CGO_CFLAGS="-I/usr/local/include/rocksdb" CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4" go run app.go 10000 9800
+// CGO_CFLAGS="-I/usr/local/include/rocksdb" CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4" go run app.go 10000 9800
 func main() {
 	if len(os.Args) <= 2 {
 		fmt.Println("input arg $1 nodeID, arg $2 port")

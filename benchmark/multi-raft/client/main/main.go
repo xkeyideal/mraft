@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"mraft/benchmark/generate"
-	"mraft/benchmark/multi-raft/client"
-	"mraft/store"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/benchmark/generate"
+	"github.com/xkeyideal/mraft/benchmark/multi-raft/client"
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 type TestClient struct {

@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"mraft/store"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/experiment/store"
 
 	"github.com/lni/dragonboat/v3"
 	"github.com/lni/dragonboat/v3/client"

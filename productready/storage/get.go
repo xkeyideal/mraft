@@ -2,6 +2,9 @@ package storage
 
 import (
 	"context"
+	"encoding/binary"
+
+	"github.com/xkeyideal/mraft/productready/storage/store"
 
 	"github.com/lni/dragonboat/v3"
 	"github.com/lni/dragonboat/v3/client"
@@ -30,10 +33,28 @@ func (c *GetCommand) RaftInvoke(ctx context.Context, nh *dragonboat.NodeHost, cl
 	return err
 }
 
-func (c *GetCommand) LocalInvoke(s *Store) error {
-	d, err := s.GetBytes(c.Cf, c.Key)
-	c.resp = d
-	return err
+func (c *GetCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
+	cf := s.GetColumnFamily(c.Cf)
+
+	// get revision
+	v, err := s.GetBytes(s.BuildColumnFamilyKey(cf, buildRevisionKey(c.Key)))
+	if err != nil {
+		return err
+	}
+
+	if len(v) == 0 {
+		v = make([]byte, 8)
+		binary.BigEndian.PutUint64(v, 0)
+	}
+
+	// get value
+	d, err := s.GetBytes(s.BuildColumnFamilyKey(cf, c.Key))
+	if err != nil {
+		return err
+	}
+
+	c.resp = append(v, d...)
+	return nil
 }
 
 func (c *GetCommand) GetResult() []byte {

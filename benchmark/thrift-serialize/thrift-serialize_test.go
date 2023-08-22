@@ -1,9 +1,10 @@
 package serialize
 
 import (
-	"mraft/store"
 	"reflect"
 	"testing"
+
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 func TestMarshalByThrift(t *testing.T) {

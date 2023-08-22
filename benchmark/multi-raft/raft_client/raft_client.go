@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mraft/store"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 const defaultBufferSize = 5 * 1024

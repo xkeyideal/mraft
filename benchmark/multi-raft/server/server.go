@@ -6,12 +6,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"mraft/store"
 	"net"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 const defaultBufferSize = 5 * 1024

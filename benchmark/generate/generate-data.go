@@ -4,8 +4,9 @@ import (
 	"crypto/rand"
 	"io"
 	mrand "math/rand"
-	"mraft/store"
 	"time"
+
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 var idChars = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")

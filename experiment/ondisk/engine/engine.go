@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"mraft/config"
-	"mraft/ondisk"
-	"mraft/raftd"
 	"net/http"
 	"time"
+
+	"github.com/xkeyideal/mraft/config"
+	"github.com/xkeyideal/mraft/experiment/ondisk"
+	"github.com/xkeyideal/mraft/experiment/ondisk/raftd"
 
 	"github.com/gin-gonic/gin"
 )

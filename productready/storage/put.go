@@ -3,9 +3,10 @@ package storage
 import (
 	"context"
 
+	"github.com/xkeyideal/mraft/productready/storage/store"
+
 	"github.com/lni/dragonboat/v3"
 	"github.com/lni/dragonboat/v3/client"
-	"github.com/tecbot/gorocksdb"
 )
 
 type PutCommand struct {
@@ -31,16 +32,19 @@ func (c *PutCommand) RaftInvoke(ctx context.Context, nh *dragonboat.NodeHost, _ 
 	return err
 }
 
-func (c *PutCommand) LocalInvoke(s *Store) error {
-	batch := gorocksdb.NewWriteBatch()
-	defer batch.Destroy()
+func (c *PutCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
+	batch := s.Batch()
+	defer batch.Close()
 
-	cfHandle, err := s.GetCfHandle(c.Cf)
-	if err != nil {
-		return err
-	}
+	cf := s.GetColumnFamily(c.Cf)
 
-	batch.PutCF(cfHandle, c.Key, c.Value)
+	batch.Delete(s.BuildColumnFamilyKey(cf, c.Key), s.GetWo())
+
+	// 删除revision
+	revisionKey := buildRevisionKey(c.Key)
+	batch.Delete(s.BuildColumnFamilyKey(cf, revisionKey), s.GetWo())
+
+	return s.Write(batch)
 
 	return s.Write(batch)
 }

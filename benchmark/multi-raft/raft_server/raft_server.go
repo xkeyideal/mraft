@@ -5,13 +5,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"mraft/ondisk"
-	"mraft/store"
 	"net"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/experiment/ondisk"
+	"github.com/xkeyideal/mraft/experiment/store"
 )
 
 const defaultBufferSize = 5 * 1024

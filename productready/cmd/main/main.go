@@ -1,6 +1,6 @@
 package main
 
-import "mraft/productready/cmd"
+import "github.com/xkeyideal/mraft/productready/cmd"
 
 func main() {
 	cmd.Exec()

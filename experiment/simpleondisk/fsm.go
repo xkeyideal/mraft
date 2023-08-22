@@ -1,19 +1,19 @@
 package simpleondisk
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"mraft/store"
 	"os"
 	"strconv"
 	"sync/atomic"
 
+	"github.com/cockroachdb/pebble"
+	"github.com/xkeyideal/mraft/experiment/store"
+
 	sm "github.com/lni/dragonboat/v3/statemachine"
-	"github.com/tecbot/gorocksdb"
 )
 
 const (
@@ -125,7 +125,7 @@ func (d *SimpleDiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 		oldVal, err := d.NALookup([]byte(data.Key))
 
 		if err != nil {
-			d.stores[dbIndex].Write([]byte(data.Key), []byte(strconv.Itoa(data.Val)))
+			d.stores[dbIndex].SetKv([]byte(data.Key), []byte(strconv.Itoa(data.Val)))
 		} else {
 			v, err := strconv.ParseInt(string(oldVal), 10, 32)
 			if err != nil {
@@ -133,14 +133,14 @@ func (d *SimpleDiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 				continue
 			}
 
-			d.stores[dbIndex].Write([]byte(data.Key), []byte(strconv.Itoa(data.Val+int(v))))
+			d.stores[dbIndex].SetKv([]byte(data.Key), []byte(strconv.Itoa(data.Val+int(v))))
 		}
 
 		ents[index].Result = sm.Result{Value: uint64(len(ents[index].Cmd))}
 	}
 
 	idx := fmt.Sprintf("%d", ents[len(ents)-1].Index)
-	d.stores[dbIndex].Write([]byte(appliedIndexKey), []byte(idx))
+	d.stores[dbIndex].SetKv([]byte(appliedIndexKey), []byte(idx))
 
 	d.lastApplied = ents[len(ents)-1].Index
 
@@ -167,7 +167,7 @@ func (d *SimpleDiskKV) NALookup(key []byte) ([]byte, error) {
 
 type diskKVCtx struct {
 	store    *store.Store
-	snapshot *gorocksdb.Snapshot
+	snapshot *pebble.Snapshot
 }
 
 func (d *SimpleDiskKV) PrepareSnapshot() (interface{}, error) {
@@ -180,25 +180,18 @@ func (d *SimpleDiskKV) PrepareSnapshot() (interface{}, error) {
 	}, nil
 }
 
-func (d *SimpleDiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, w io.Writer) error {
-	iter := store.NewIterator(ss)
+func (d *SimpleDiskKV) saveToWriter(store *store.Store, snapshot *pebble.Snapshot, w io.Writer) error {
+	iter := snapshot.NewIter(store.GetRo())
 	defer iter.Close()
-	defer store.ReleaseSnapshot(ss)
 
-	dataSize := make([]byte, 4)
 	keySize := make([]byte, 4)
 	valSize := make([]byte, 4)
-	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
-		key := iter.Key().Data()
-		val := iter.Value().Data()
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		val := iter.Value()
 
-		kl := iter.Key().Size()
-		vl := iter.Value().Size()
-
-		binary.LittleEndian.PutUint32(dataSize, uint32(kl+vl+4+4))
-		if _, err := w.Write(dataSize); err != nil {
-			return err
-		}
+		kl := len(key)
+		vl := len(val)
 
 		binary.LittleEndian.PutUint32(keySize, uint32(kl))
 		if _, err := w.Write(keySize); err != nil {
@@ -219,14 +212,6 @@ func (d *SimpleDiskKV) saveToWriter(store *store.Store, ss *gorocksdb.Snapshot, 
 		}
 	}
 
-	binary.LittleEndian.PutUint32(dataSize, uint32(len(endSignal)))
-	if _, err := w.Write(dataSize); err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte(endSignal)); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -240,81 +225,98 @@ func (d *SimpleDiskKV) SaveSnapshot(ctx interface{}, w io.Writer, done <-chan st
 		store := ctxdata.store
 		ss := ctxdata.snapshot
 
+		defer ss.Close()
+
 		return d.saveToWriter(store, ss, w)
 	}
 }
 
 // RecoverFromSnapshot 执行时，sm 的其他接口不会被同时执行
-func (d *SimpleDiskKV) RecoverFromSnapshot(r io.Reader, done <-chan struct{}) error {
-	select {
-	case <-done:
-		return sm.ErrSnapshotStopped
-	default:
-		dir := getNodeDBDirName(d.clusterID, d.nodeID)
-		dbdir := getNewRandomDBDirName(dir)
-		oldDirName, err := getCurrentDBDirName(dir)
-		if err != nil {
-			return err
-		}
-
-		store, err := store.NewStore(dbdir)
-		if err != nil {
-			return err
-		}
-
-		sz := make([]byte, 4)
-		wb := gorocksdb.NewWriteBatch()
-		for {
-			if _, err := io.ReadFull(r, sz); err != nil {
-				return err
-			}
-			dataSize := binary.LittleEndian.Uint32(sz)
-			data := make([]byte, dataSize)
-			if _, err := io.ReadFull(r, data); err != nil {
-				return err
-			}
-
-			if bytes.Compare(data, []byte(endSignal)) == 0 {
-				break
-			}
-
-			kl := binary.LittleEndian.Uint32(data[:4])
-			key := data[4 : kl+4]
-			vl := binary.LittleEndian.Uint32(data[kl+4 : kl+8])
-			val := data[kl+8:]
-			if uint32(len(val)) != vl {
-				continue
-			}
-			wb.Put(key, val)
-		}
-
-		if err := store.BatchWrite(wb); err != nil {
-			return err
-		}
-
-		if err := saveCurrentDBDirName(dir, dbdir); err != nil {
-			return err
-		}
-		if err := replaceCurrentDBFile(dir); err != nil {
-			return err
-		}
-
-		oldDbIndex := atomic.LoadUint32(&d.dbIndex)
-		newDbIndex := 1 - oldDbIndex
-		atomic.StoreUint32(&d.dbIndex, newDbIndex)
-		d.stores[newDbIndex] = store
-
-		newLastApplied, err := d.queryAppliedIndex()
-		if err != nil {
-			return err
-		}
-
-		d.stores[oldDbIndex].Close()
-
-		d.lastApplied = newLastApplied
-
-		return os.RemoveAll(oldDirName)
+func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{}) error {
+	dir := getNodeDBDirName(d.clusterID, d.nodeID)
+	dbdir := getNewRandomDBDirName(dir)
+	oldDirName, err := getCurrentDBDirName(dir)
+	if err != nil {
+		return err
 	}
+
+	store, err := store.NewStore(dbdir)
+	if err != nil {
+		return err
+	}
+
+	sz := make([]byte, 4)
+	for {
+		if isStop(done) {
+			return sm.ErrSnapshotStopped
+		}
+
+		// 先读key
+		_, err := io.ReadFull(reader, sz) // key size
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return err
+		}
+
+		toRead := binary.LittleEndian.Uint64(sz)
+		kdata := make([]byte, toRead)
+		_, err = io.ReadFull(reader, kdata) // key data
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// 再读val
+		_, err = io.ReadFull(reader, sz) // val size
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		toRead = binary.LittleEndian.Uint64(sz)
+		vdata := make([]byte, toRead)
+		_, err = io.ReadFull(reader, vdata) // val data
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		store.SetKv(kdata, vdata)
+	}
+
+	store.Flush() // db 刷盘
+
+	if err := saveCurrentDBDirName(dir, dbdir); err != nil {
+		return err
+	}
+	if err := replaceCurrentDBFile(dir); err != nil {
+		return err
+	}
+
+	oldDbIndex := atomic.LoadUint32(&d.dbIndex)
+	newDbIndex := 1 - oldDbIndex
+	atomic.StoreUint32(&d.dbIndex, newDbIndex)
+	d.stores[newDbIndex] = store
+
+	newLastApplied, err := d.queryAppliedIndex()
+	if err != nil {
+		return err
+	}
+
+	d.stores[oldDbIndex].Close()
+
+	d.lastApplied = newLastApplied
+
+	return os.RemoveAll(oldDirName)
 }
 
 func (d *SimpleDiskKV) Close() error {
@@ -329,4 +331,13 @@ func (d *SimpleDiskKV) Close() error {
 
 func (d *SimpleDiskKV) Sync() error {
 	return nil
+}
+
+func isStop(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
 }

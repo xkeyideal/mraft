@@ -3,9 +3,10 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"mraft/productready/utils"
 	"strconv"
 	"time"
+
+	"github.com/xkeyideal/mraft/productready/utils"
 
 	"github.com/xkeyideal/gokit/httpkit"
 )
@@ -13,6 +14,8 @@ import (
 type DynamicConfig struct {
 	// raft数据存储目录
 	RaftDir string `json:"raftDir"`
+
+	LogDir string `json:"logDir"`
 
 	// raft最初的集群地址,IP+Port
 	RaftPeers []string `json:"raftPeers"`
@@ -32,6 +35,7 @@ type DynamicConfig struct {
 
 type OnDiskRaftConfig struct {
 	DataDir      string
+	LogDir       string
 	Peers        map[uint64]string
 	NodeID       uint64
 	Join         bool // 该节点是否以join的方式加入raft集群
@@ -68,6 +72,7 @@ func NewOnDiskRaftConfig(dcfg *DynamicConfig) *OnDiskRaftConfig {
 
 	cfg := &OnDiskRaftConfig{
 		DataDir:      dcfg.RaftDir,
+		LogDir:       dcfg.LogDir,
 		Peers:        raftPeers,
 		Join:         !dcfg.Native,
 		NodeID:       nodeID,

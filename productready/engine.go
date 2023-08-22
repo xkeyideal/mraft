@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"mraft/productready/config"
-	"mraft/productready/httpd"
-	"mraft/productready/storage"
 	"net/http"
 	"time"
+
+	"github.com/xkeyideal/mraft/productready/config"
+	"github.com/xkeyideal/mraft/productready/httpd"
+	"github.com/xkeyideal/mraft/productready/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,6 +52,7 @@ func NewEngine(dcfg *config.DynamicConfig) *Engine {
 		cfg.NodeID,
 		fmt.Sprintf("%s:%s", cfg.IP, cfg.RaftPort),
 		cfg.DataDir,
+		cfg.LogDir,
 		cfs,
 		cfg.Join,
 		cfg.Peers,

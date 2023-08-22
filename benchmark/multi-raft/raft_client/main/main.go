@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"mraft/benchmark/generate"
-	"mraft/benchmark/multi-raft/raft_client"
-	"mraft/store"
 	"sync"
 	"time"
+
+	"github.com/xkeyideal/mraft/benchmark/generate"
+	"github.com/xkeyideal/mraft/benchmark/multi-raft/raft_client"
+	"github.com/xkeyideal/mraft/experiment/store"
 
 	"github.com/rcrowley/go-metrics"
 )

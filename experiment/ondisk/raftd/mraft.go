@@ -3,10 +3,11 @@ package raftd
 import (
 	"encoding/json"
 	"io/ioutil"
-	"mraft/ondisk"
-	"mraft/store"
 	"net/http"
 	"strconv"
+
+	"github.com/xkeyideal/mraft/experiment/ondisk"
+	"github.com/xkeyideal/mraft/experiment/store"
 
 	"github.com/gin-gonic/gin"
 )
