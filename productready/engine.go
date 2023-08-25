@@ -10,6 +10,7 @@ import (
 	"github.com/xkeyideal/mraft/productready/config"
 	"github.com/xkeyideal/mraft/productready/httpd"
 	"github.com/xkeyideal/mraft/productready/storage"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,48 +26,42 @@ type Engine struct {
 	kvHandle *httpd.KVHandle
 }
 
-func NewEngine(dcfg *config.DynamicConfig) *Engine {
-	cfg := config.NewOnDiskRaftConfig(dcfg)
-	if cfg.Join {
-		// 先调用webapi的http接口，告知集群有新节点加入
-		code, err := cfg.JoinNewNode(fmt.Sprintf("%s:%d", dcfg.IP, dcfg.RaftPort))
-		if code < 0 {
-			log.Fatal("join new node", err)
-		}
+var (
+	clusterIds = []uint64{0, 1, 2}
+)
 
-		// 新增的节点已经存在, 视为节点重启，根据dragonboat的文档:
-		// 当一个节点重启时，不论该节点是一个初始节点还是后续通过成员变更添加的节点，均无需再次提供初始成员信息，也不再需要设置join参数为true
-		if code == 1 {
-			cfg.Join = false
-			cfg.Peers = make(map[uint64]string)
-			log.Println("join new node restart")
-		}
+func NewEngine(cfg *config.DynamicConfig) *Engine {
+	raftCfg := &storage.RaftConfig{
+		LogDir:         cfg.LogDir,
+		LogLevel:       zapcore.DebugLevel,
+		HostIP:         cfg.IP,
+		NodeId:         cfg.NodeId,
+		ClusterIds:     clusterIds,
+		RaftAddr:       fmt.Sprintf("%s:%d", cfg.IP, cfg.RaftPort),
+		MultiGroupSize: uint32(len(clusterIds)),
+		StorageDir:     cfg.RaftDir,
+		Join:           cfg.Join,
+		InitialMembers: cfg.InitialMembers,
+		// Gossip:         metadata.Gossip,
+		// GossipPort:     metadata.GossipPort,
+		// GossipSeeds:    metadata.GossipSeeds,
+		Metrics: false,
+		// BindAddress: fmt.Sprintf("%s:%d", engine.cfg.IP, metadata.GossipConfig.BindPort),
+		// BindPort:    uint16(metadata.GossipConfig.BindPort),
+		// Seeds:       metadata.GossipConfig.Seeds,
 	}
 
-	cfs := []string{
-		"kvstorage",
-	}
-
-	raftStorage, err := storage.NewStorage(
-		cfg.DeploymentID,
-		cfg.NodeID,
-		fmt.Sprintf("%s:%s", cfg.IP, cfg.RaftPort),
-		cfg.DataDir,
-		cfg.LogDir,
-		cfs,
-		cfg.Join,
-		cfg.Peers,
-	)
+	raftStorage, err := storage.NewStorage(raftCfg)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	log.Println("raft started, waiting raft cluster ready")
+
 	// 等待raft集群ready
-	for {
-		if raftStorage.ClusterAllReady() {
-			break
-		}
-		time.Sleep(2 * time.Second)
+	err = raftStorage.RaftReady()
+	if err != nil {
+		log.Fatalf("[ERROR] raft ready %s\n", err.Error())
 	}
 
 	router := gin.New()

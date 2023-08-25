@@ -1,35 +1,6 @@
 ### 启动方式
 
-程序启动入口: productready/cmd/main/main.go
-
-```
-cd productready/cmd/main
-go build productready/cmd/main/main.go
-
-# CMD ./main -c ${NODES} -i 192.168.1.1 -p 13890 -d /data/raft init
-# CMD ./main  -i 192.168.1.1 -p 13890  -d /data/raft -u "http://127.0.0.1:13891/raft/join" join
-
-# Usage:
-#  /main [flags] <init|join>
-#
-#Flags:
-#  -c, --cluster-item stringArray   add cluster node <ip:port> | <ip:port,ip:port...>
-#  -d, --data-dir string            set data dir (default "./data")
-#  -i, --discover-address string    address exported to others (default "auto")
-#  -h, --help                       help
-#  -s, --silent                     set log level to error.
-#  -t, --try-run                    dump config but not serve.
-#  -u, --join-url                   set one raft cluster node join url.
-#  -v, --verbose count              set log level [ 0=warn | 1=info | 2=debug ].
-#  -V, --version                    show version and build info.
-
-# Examples:
-# CMD ./main -c "1.2.3.4:13890,1.2.3.5:13890" -i "1.2.3.4" -p 13890 init
-# CMD ./main -c "1.2.3.4:13890" -c '1.2.3.5'-i "1.2.3.4" -p 13890 init
-# CMD ./main -i "1.2.3.6" -p 13890 -u "http://1.2.3.4:13891/raft/join" join
-# CMD ./main -c "10.181.20.34:12100,10.181.20.34:12200,10.181.20.34:12300" -i 10.181.20.34 -p 12100 init
-# CMD ./main  -i 10.181.20.34 -p 12400 -u "http://10.181.20.34:12301/raft/join" join
-```
+程序启动入口: productready/main/app.go httpPort, raftPort
 
 ### 启动配置项
 
@@ -38,33 +9,70 @@ type DynamicConfig struct {
 	// raft数据存储目录
 	RaftDir string `json:"raftDir"`
 
-	// raft最初的集群地址,IP+Port
-	RaftPeers []string `json:"raftPeers"`
+	// 日志存储目录
+	LogDir string `json:"logDir"`
 
-	// 该节点是否是raft的最初集群之一
-	Native bool `json:"native"`
+	// 每个raft节点的Id，一旦生成且加入集群，再次启动后，不能变动
+	NodeId uint64 `json:"nodeId"`
 
-	// join 节点时，http join的接口地址
-	JoinUrl string `json:"joinUrl"`
+	// key: clusterId, key:nodeId
+	Join map[uint64]map[uint64]bool `json:"join"`
+
+	// key: clusterId, key:nodeId
+	// val: 根据dragonboat的启动方式决定
+	// gossip方式: NodeHostId
+	// 常规方式: raftAddr
+	InitialMembers map[uint64]map[uint64]string `json:"initial_members"`
 
 	// 本机的地址
 	IP string `json:"ip"`
 
 	// raft port
-	RaftPort uint16 `json:"raftPort"`
+	RaftPort uint16 `json:"raft_port"`
+
+	// http port
+	HttpPort uint16 `json:"http_port"`
 }
 ```
 
-**根据[dragonboat](https://github.com/lni/dragonboat/blob/master/docs/overview.CHS.md)节点启动的文档，当一个节点重启时，不论该节点是一个初始节点还是后续通过成员变更添加的节点，均无需再次提供初始成员信息，也不再需要设置join参数为true**, 因此针对上述配置文件, **raftPeers**和**native**参数在重启时可以不提供
+### dragonboat raft的启动方式
+
+该raft框架的启动方式有两种
+
+1. 采用常规的ip:port方式，此方式限制了重启后ip:port不能发生改变
+2. 采用gossip方式启动，此方式只需要保证raft config里的
+```go
+Expert: config.ExpertConfig{
+			TestNodeHostID: nodeId,
+		},
+``` 
+TestNodeHostID不变即可，可以实现重启后的ip改动，但数据文件和raft文件不能丢失，本质上仅支持机器换ip
+
+本示例采用的是第一种方式.
+
+raft集群里的每台集群管理的`clusterIds`不一定必须完全一致，即每台机器没必要存储全量的数据，可以写一个管理端程序来管理clusterId的每台机器分配情况。
+如果每台机器不存全量的`clusterIds`，那么业务请求的key到来，可能该机器并不存在此key的value，解决办法可以采用该机器找到该key实际存在在哪来机器，
+然后帮助业务完成请求并返回。
+
+### 本示例目前无法直接启动
+
+由于需要配置`DynamicConfig` 里的 `Join` 和 `InitialMembers` 字段后才能顺利启动，本人使用的真实生产环境是将启动配置写入服务器文件，每次重启时读取该文件获取上述必备的启动数据；如果不存在本地文件，则等待管理端推送该份配置。
+
+因此想启动，可以先研究一下代码，然后将 `Join` 和 `InitialMembers` 字段写死在`productready/main/app.go`文件的配置里，然后尝试启动
+
+刚开始第一步，将所有的`clusterId`和`nodeId`全部以原始节点启动，目前在`productready/engine.go`里系统是将所有`clusterIds`写死的`clusterIds = []uint64{0, 1, 2}`，真实的生产环境`clusterIds`的个数也是预先配置好的，均存储在管理端程序中。
+
+如果节点是以`join`的方式加入，那么先启动该节点，然后调用集群接口，将此节点加入进集群，然后重新生成 `Join` 和 `InitialMembers` 字段，推送给新节点，等待即可；该份新配置也应该推送给集群中原本以存在的机器，本人真实使用的情况是对此份配置加上版本号来进行控制的。
+
+**根据[dragonboat](https://github.com/lni/dragonboat/blob/master/docs/overview.CHS.md)节点启动的文档，当一个节点重启时，不论该节点是一个初始节点还是后续通过成员变更添加的节点，均无需再次提供初始成员信息，也不再需要设置join参数为true**。
 
 配置解释:
 
 1. raft集群中每个节点ID(NodeID)，采用该节点IP+port生成的48位uint64整型值
 2. 若未配置raftPort，则控制中心采用默认的raftPort端口 `13890`启动
 3. 样例提供的http端口采用raftPort的整型值加1作为HttpPort，无需用户配置
-4. 原生的raft集群的机器启动时需要指定上述配置里两个重要的参数 `native=true` 和 详细的`raftPeers` 
-5. 以join的方式主动加入原生raft集群的节点无需配置上述配置里的参数 `native` 和 `raftPeers`，具体的加入方式见下面的说明
-6. raftPeers里使用IP+port的方式提供，故此处需注意raftPeers里的本机raftPort需与配置文件里需提供的raftPort一致，否则程序会启动失败
+4. `join`字段，每个clusterId下对应存在哪些nodeId，且这些nodeId是集群的原始节点或后加入的节点
+5. `initial_members`字段，告知集群每个clusterId下对应存在哪些nodeId，每个nodeId的raftAddr
 
 ### 节点加入raft集群
 
@@ -156,11 +164,11 @@ config.Config{
     // 要将选举间隔设置为1秒，则应该将ElectionRTT设置为10。启用CheckQuorum后，ElectionRTT还将定义检查领导者定额的时间间隔。
     // 这个值是个比例,具体的RTT时间大小是RTTMillisecond*ElectionRTT,当需要选举主节点时,各个节点的随机间隔在ElectionRTT和2 * ElectionRTT,
     // 当CheckQuorum为true,主也会每隔这个时间检查下从机数据是否符合法定人数
-    ElectionRTT: 20,
+    ElectionRTT: 60,
 
     // HeartbeatRTT是两次心跳之间的消息RTT数。 消息RTT由NodeHostConfig.RTTMillisecond定义。 Raft论文建议心跳间隔应接近节点之间的平均RTT。
     // 例如，假设NodeHostConfig.RTTMillisecond为100毫秒，要将心跳间隔设置为每200毫秒，则应将HeartbeatRTT设置为2。
-    HeartbeatRTT: 2,
+    HeartbeatRTT: 6,
 
     // SnapshotEntries定义应自动对状态机进行快照的频率,可以将SnapshotEntries设置为0以禁用此类自动快照。
     // 当SnapshotEntries设置为N时，意味着大约每N条Raft日志创建一个快照。这也意味着向跟踪者发送N个日志条目比发送快照要昂贵。

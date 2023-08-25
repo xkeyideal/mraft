@@ -6,7 +6,7 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 提供生产ready的样例，[productready](https://github.com/xkeyideal/mraft/blob/master/productready/README.md)
 
-1. 提供了完整的采用`rocksdb`作为业务数据存储的状态机代码，此代码已用于生产环境。
+1. 提供了完整的采用`pebbledb`作为业务数据存储的状态机代码，此代码已用于生产环境。
 2. 提供了支持动态配置的启动方式，提供了`dragonboat`配置需处理节点ID等问题的一个解决思路
 3. 程序化的提供了新增raft节点的方案
 
@@ -14,7 +14,7 @@ multi-group raft的简单使用示例，由于对[dragonboat](https://github.com
 
 本示例是对[dragonboat-example](https://github.com/lni/dragonboat-example)中ondisk示例的重写，改变其代码结构，状态机的数据协议采用自定义的二进制协议，尽可能的提高读写性能。
 
-本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.3.4版本, [rocksdb](https://github.com/facebook/rocksdb) 使用的是v6.1.2版本
+本示例[dragonboat](https://github.com/lni/dragonboat) 使用的是v3.3.7版本, [pebbledb](https://github.com/cockroachdb/pebble) 使用的是跟随`dragonboat`所使用的版本
 
 ### 序列化工具
 
@@ -88,9 +88,9 @@ Non-sync'ed 8kB writes:
 
 ### 启动方式
 
-首先需要安装rocksdb，本示例业务的存储使用的是rocksdb。
+示例代码已经放弃使用`rocksdb`作为存储，已经是纯`go`实现
 
-`CGO_CFLAGS="-I/usr/local/include/rocksdb" CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4" go run app.go 10000 9800`
+`go run app.go 10000 9800`
 
 **10000** 是NodeID，已经在代码里限定了（代码中的NodeID分别是10000，10001，10002），不能修改.
 **9800**是HTTP的端口号，随意设定即可
