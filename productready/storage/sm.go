@@ -93,7 +93,7 @@ func (r *StateMachine) Update(entries []sm.Entry) ([]sm.Entry, error) {
 	defer batch.Close()
 
 	// 更新revision的值
-	batch.Set(r.indexKey, idxByte, r.store.GetWo())
+	batch.Set(r.indexKey, idxByte, pebble.Sync)
 	if err := r.store.Write(batch); err != nil {
 		return nil, err
 	}

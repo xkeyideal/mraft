@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 
+	"github.com/cockroachdb/pebble"
 	"github.com/xkeyideal/mraft/productready/storage/store"
 
 	"github.com/lni/dragonboat/v3"
@@ -33,11 +34,11 @@ func (c *DelCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
 
 	cf := s.GetColumnFamily(c.CfName)
 
-	batch.Delete(s.BuildColumnFamilyKey(cf, c.Key), s.GetWo())
+	batch.Delete(s.BuildColumnFamilyKey(cf, c.Key), pebble.Sync)
 
 	// 删除revision
 	revisionKey := buildRevisionKey(c.Key)
-	batch.Delete(s.BuildColumnFamilyKey(cf, revisionKey), s.GetWo())
+	batch.Delete(s.BuildColumnFamilyKey(cf, revisionKey), pebble.Sync)
 
 	return s.Write(batch)
 }

@@ -29,10 +29,6 @@ type Store struct {
 	opts PebbleClusterOption
 	log  *zap.Logger
 	db   *atomic.Pointer[pebble.DB]
-	//db        *pebble.DB
-	ro     *pebble.IterOptions
-	wo     *pebble.WriteOptions
-	syncwo *pebble.WriteOptions
 
 	closed *atomic.Bool
 }
@@ -51,9 +47,6 @@ func NewStore(clusterId uint64, path, pebbleDBDir string, opts PebbleClusterOpti
 		log:       log,
 		opts:      opts,
 		db:        atomic.NewPointer[pebble.DB](db),
-		ro:        &pebble.IterOptions{},
-		wo:        &pebble.WriteOptions{Sync: false},
-		syncwo:    &pebble.WriteOptions{Sync: true},
 		closed:    atomic.NewBool(false),
 	}, nil
 }
@@ -98,22 +91,18 @@ func (s *Store) GetBytes(key []byte) ([]byte, error) {
 	return data, nil
 }
 
-func (s *Store) GetWo() *pebble.WriteOptions {
-	return s.wo
-}
-
 func (s *Store) Batch() *pebble.Batch {
 	db := s.db.Load()
 	return db.NewBatch()
 }
 
 func (s *Store) Write(b *pebble.Batch) error {
-	return b.Commit(s.wo)
+	return b.Commit(pebble.Sync)
 }
 
 func (s *Store) GetIterator() *pebble.Iterator {
 	db := s.db.Load()
-	return db.NewIter(s.ro)
+	return db.NewIter(&pebble.IterOptions{})
 }
 
 func (s *Store) GetSnapshot() *pebble.Snapshot {
@@ -131,7 +120,7 @@ func iteratorIsValid(iter *pebble.Iterator) bool {
 }
 
 func (s *Store) SaveSnapshotToWriter(target, raftAddr string, snapshot *pebble.Snapshot, w io.Writer, stopChan <-chan struct{}) error {
-	iter := snapshot.NewIter(s.ro)
+	iter := snapshot.NewIter(&pebble.IterOptions{})
 	defer iter.Close()
 
 	start := tools.CSTNow()
@@ -271,7 +260,7 @@ func (s *Store) LoadSnapShotFromReader(target, raftAddr string, reader io.Reader
 		}
 
 		// 写入db
-		newdb.Set(kdata, ungzipVData, s.wo)
+		newdb.Set(kdata, ungzipVData, pebble.Sync)
 	}
 
 	// 同步写入db
