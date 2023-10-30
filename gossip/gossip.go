@@ -122,14 +122,14 @@ func NewGossipManager(config GossipConfig, opts GossipOptions) (*GossipManager, 
 		RetransmitMult: 3,
 	}
 
+	g.ed.start()
+
 	seed := make([]string, 0, len(config.Seeds))
 	seed = append(seed, config.Seeds...)
 	err = g.join(seed)
 	if err != nil {
 		return nil, err
 	}
-
-	g.ed.start()
 
 	g.stopper.RunWorker(func() {
 		ticker := time.NewTicker(5 * time.Second)
