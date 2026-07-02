@@ -1,0 +1,36 @@
+productready/main/app.go
+  h_f85060ac8af383 34
+productready/engine.go
+  h_f85060ac8af383 74
+productready/httpd/handle.go
+  s_f3a158e71bab65::t_847269b35d0bf1 89
+experiment/simpleondisk/fsm.go
+  h_f85060ac8af383 264,283
+productready/storage/put.go
+  h_f85060ac8af383 5,37-38,44-45,47-48,50
+productready/storage/store/store.go
+  h_f85060ac8af383 107
+experiment/ondisk/fsm.go
+  h_f85060ac8af383 259,278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "68e08900f575c6a1c92e76d7fb2d03c3844b93ed",
+  "prompts": {},
+  "humans": {
+    "h_f85060ac8af383": {
+      "author": "xkeyideal <myselfxukai@163.com>"
+    }
+  },
+  "sessions": {
+    "s_f3a158e71bab65": {
+      "agent_id": {
+        "tool": "github-copilot-tab",
+        "id": "ai_tab-1782982838873",
+        "model": "default"
+      },
+      "human_author": "xkeyideal <myselfxukai@163.com>"
+    }
+  }
+}
