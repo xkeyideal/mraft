@@ -52,6 +52,7 @@ func init() {
 type raftLogger struct {
 	pkgName string
 	logDir  string
+	level   zap.AtomicLevel
 	log     *zap.Logger
 }
 
@@ -65,11 +66,17 @@ func NewRaftLogger(logDir, pkgName string, level zapcore.Level) *raftLogger {
 }
 
 func RaftFactory(pkgName string) logger.ILogger {
-	name := fmt.Sprintf("dragonboat-%s.log", pkgName)
+	if Lo.logDir == "" {
+		Lo.logDir = LogDir
+	}
+
+	log, level := zlog.NewLoggerWithLevel(filepath.Join(Lo.logDir, fmt.Sprintf("dragonboat-%s.log", pkgName)), zapcore.InfoLevel, false)
+
 	return &raftLogger{
 		logDir:  Lo.logDir,
 		pkgName: pkgName,
-		log:     zlog.NewLogger(filepath.Join(Lo.logDir, name), zapcore.InfoLevel, false),
+		level:   level,
+		log:     log,
 	}
 }
 
@@ -91,8 +98,10 @@ func (c *raftLogger) SetLevel(level logger.LogLevel) {
 		panic("unexpected level")
 	}
 
-	name := fmt.Sprintf("dragonboat-%s.log", c.pkgName)
-	c.log = zlog.NewLogger(filepath.Join(c.logDir, name), cl, false)
+	// name := fmt.Sprintf("dragonboat-%s.log", c.pkgName)
+	// c.log = zlog.NewLogger(filepath.Join(c.logDir, name), cl, false)
+
+	c.level.SetLevel(cl)
 }
 
 func (c *raftLogger) fmsg() string {

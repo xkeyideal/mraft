@@ -38,7 +38,7 @@ func CSTTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 	encodeTimeLayout(t.In(cstLocal), "2006-01-02 15:04:05.000", enc)
 }
 
-func NewLogger(logFilename string, level zapcore.Level, stdout bool) *zap.Logger {
+func NewLoggerWithLevel(logFilename string, level zapcore.Level, stdout bool) (*zap.Logger, zap.AtomicLevel) {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "time",
 		LevelKey:       "level",
@@ -77,6 +77,12 @@ func NewLogger(logFilename string, level zapcore.Level, stdout bool) *zap.Logger
 	)
 
 	logger := zap.New(core)
+
+	return logger, atomicLevel
+}
+
+func NewLogger(logFilename string, level zapcore.Level, stdout bool) *zap.Logger {
+	logger, _ := NewLoggerWithLevel(logFilename, level, stdout)
 
 	return logger
 }
