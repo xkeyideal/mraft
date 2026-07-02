@@ -261,7 +261,7 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 			return err
 		}
 
-		toRead := binary.LittleEndian.Uint64(sz)
+		toRead := binary.LittleEndian.Uint32(sz)
 		kdata := make([]byte, toRead)
 		_, err = io.ReadFull(reader, kdata) // key data
 		if err == io.EOF {
@@ -280,7 +280,7 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 			return err
 		}
 
-		toRead = binary.LittleEndian.Uint64(sz)
+		toRead = binary.LittleEndian.Uint32(sz)
 		vdata := make([]byte, toRead)
 		_, err = io.ReadFull(reader, vdata) // val data
 		if err == io.EOF {

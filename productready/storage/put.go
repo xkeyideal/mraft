@@ -2,8 +2,8 @@ package storage
 
 import (
 	"context"
+	"encoding/binary"
 
-	"github.com/cockroachdb/pebble"
 	"github.com/xkeyideal/mraft/productready/storage/store"
 
 	"github.com/lni/dragonboat/v3"
@@ -34,18 +34,20 @@ func (c *PutCommand) RaftInvoke(ctx context.Context, nh *dragonboat.NodeHost, _ 
 }
 
 func (c *PutCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
+	wo := mergeWriteOptions(opts...)
+
 	batch := s.Batch()
 	defer batch.Close()
 
 	cf := s.GetColumnFamily(c.Cf)
 
-	batch.Delete(s.BuildColumnFamilyKey(cf, c.Key), pebble.Sync)
+	revisionValue := make([]byte, 8)
+	binary.BigEndian.PutUint64(revisionValue, wo.Revision)
 
-	// 删除revision
-	revisionKey := buildRevisionKey(c.Key)
-	batch.Delete(s.BuildColumnFamilyKey(cf, revisionKey), pebble.Sync)
+	// set revision
+	batch.Set(s.BuildColumnFamilyKey(cf, buildRevisionKey(c.Key)), revisionValue, s.GetWo())
 
-	return s.Write(batch)
+	batch.Set(s.BuildColumnFamilyKey(cf, c.Key), c.Value, s.GetWo())
 
 	return s.Write(batch)
 }

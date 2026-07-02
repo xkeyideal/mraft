@@ -71,7 +71,7 @@ func NewEngine(cfg *config.DynamicConfig) *Engine {
 		prefix: "/raft",
 		router: router,
 		server: &http.Server{
-			Addr:         fmt.Sprintf("0.0.0.0:%s", cfg.HttpPort),
+			Addr:         fmt.Sprintf("0.0.0.0:%d", cfg.HttpPort),
 			Handler:      router,
 			ReadTimeout:  20 * time.Second,
 			WriteTimeout: 40 * time.Second,

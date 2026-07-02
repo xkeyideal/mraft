@@ -86,6 +86,7 @@ func (mh *KVHandle) JoinNode(c *gin.Context) {
 	for _, raftAddr := range raftAddrs {
 		if nodeAddr == raftAddr {
 			utils.SetStrResp(http.StatusOK, 1, fmt.Sprintf("%s 待加入的节点已经在集群raft节点中", nodeAddr), "OK", c)
+			return
 		}
 	}
 

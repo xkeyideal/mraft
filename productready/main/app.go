@@ -31,7 +31,7 @@ func main() {
 
 	config.HttpPort = uint16(httpPort)
 
-	raftPort, err := strconv.ParseUint(os.Args[1], 10, 64)
+	raftPort, err := strconv.ParseUint(os.Args[2], 10, 64)
 	if err != nil {
 		log.Fatal("[ERROR]", err)
 	}
