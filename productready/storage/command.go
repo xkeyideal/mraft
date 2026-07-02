@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/xkeyideal/mraft/productready/storage/store"
@@ -56,6 +57,10 @@ func Decode(buf []byte, e interface{}) error {
 }
 
 func DecodeCmd(data []byte) (RaftCommand, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty command data")
+	}
+
 	var cmd RaftCommand
 	switch CommandType(data[0]) {
 	case DELETE:
@@ -107,7 +112,11 @@ func syncRead(ctx context.Context, nh *dragonboat.NodeHost, clusterId uint64, cm
 		return nil, err
 	}
 
-	return result.([]byte), nil
+	data, ok := result.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid read result type: %T", result)
+	}
+	return data, nil
 }
 
 func buildRevisionKey(key []byte) []byte {

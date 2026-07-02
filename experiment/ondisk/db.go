@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -14,11 +13,16 @@ import (
 	"time"
 )
 
-const (
-	mraftDBDirName     string = "/Users/xkey/raftlab/mraft-rocksdb"
+var (
+	mraftDBDirName     string = "./raftdata-ondisk"
 	currentDBFilename  string = "current"
 	updatingDBFilename string = "current.updating"
 )
+
+// SetDBDir sets the root directory used by the on-disk state machine.
+func SetDBDir(dir string) {
+	mraftDBDirName = dir
+}
 
 func isNewRun(dir string) bool {
 	fp := filepath.Join(dir, currentDBFilename)
@@ -78,13 +82,20 @@ func cleanupNodeDataDir(dir string) error {
 		return err
 	}
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 
 	for _, fi := range files {
 		if !fi.IsDir() {
+			continue
+		}
+		info, err := fi.Info()
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
 			continue
 		}
 		//fmt.Printf("dbdir %s, fi.name %s, dir %s\n", dbdir, fi.Name(), dir)
@@ -200,7 +211,7 @@ func SyncDir(dir string) (err error) {
 		return err
 	}
 	if !fileInfo.IsDir() {
-		panic("not a dir")
+		return fmt.Errorf("not a directory: %s", dir)
 	}
 	df, err := os.Open(filepath.Clean(dir))
 	if err != nil {

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"go.uber.org/atomic"
@@ -28,6 +30,8 @@ type Store struct {
 	path string
 	opts PebbleClusterOption
 	log  *zap.Logger
+
+	dbMu sync.RWMutex
 	db   *atomic.Pointer[pebble.DB]
 
 	ro     *pebble.IterOptions
@@ -62,8 +66,12 @@ func (s *Store) Closed() bool {
 	return s.closed.Load()
 }
 
-func (s *Store) GetColumnFamily(cf string) byte {
-	return PebbleColumnFamilyMap[cf]
+func (s *Store) GetColumnFamily(cf string) (byte, error) {
+	v, ok := PebbleColumnFamilyMap[cf]
+	if !ok {
+		return 0, fmt.Errorf("unknown column family: %s", cf)
+	}
+	return v, nil
 }
 
 func (s *Store) BuildColumnFamilyKey(cf byte, key []byte) []byte {
@@ -75,7 +83,13 @@ func (s *Store) GetBytes(key []byte) ([]byte, error) {
 		return []byte{}, pebble.ErrClosed
 	}
 
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+
 	db := s.db.Load()
+	if db == nil {
+		return nil, pebble.ErrClosed
+	}
 	val, closer, err := db.Get(key)
 
 	// 查询的key不存在，返回空值
@@ -99,12 +113,24 @@ func (s *Store) GetBytes(key []byte) ([]byte, error) {
 }
 
 func (s *Store) Batch() *pebble.Batch {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+
 	db := s.db.Load()
+	if db == nil {
+		return nil
+	}
 	return db.NewBatch()
 }
 
 func (s *Store) Write(b *pebble.Batch) error {
-	return b.Commit(s.wo)
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+
+	if s.db.Load() == nil {
+		return pebble.ErrClosed
+	}
+	return b.Commit(s.syncwo)
 }
 
 func (s *Store) GetWo() *pebble.WriteOptions {
@@ -112,12 +138,24 @@ func (s *Store) GetWo() *pebble.WriteOptions {
 }
 
 func (s *Store) GetIterator() *pebble.Iterator {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+
 	db := s.db.Load()
+	if db == nil {
+		return nil
+	}
 	return db.NewIter(s.ro)
 }
 
 func (s *Store) GetSnapshot() *pebble.Snapshot {
+	s.dbMu.RLock()
+	defer s.dbMu.RUnlock()
+
 	db := s.db.Load()
+	if db == nil {
+		return nil
+	}
 	return db.NewSnapshot()
 }
 
@@ -142,6 +180,10 @@ func (s *Store) SaveSnapshotToWriter(target, raftAddr string, snapshot *pebble.S
 
 	// 遍历pebblebd snapshot, 将数据写入 io.Writer
 	for iter.First(); iteratorIsValid(iter); iter.Next() {
+		if isStop(stopChan) {
+			return errors.New("snapshot stopped")
+		}
+
 		key := iter.Key()
 		val := iter.Value()
 
@@ -149,10 +191,10 @@ func (s *Store) SaveSnapshotToWriter(target, raftAddr string, snapshot *pebble.S
 
 		// 先写key
 		binary.LittleEndian.PutUint64(sz, uint64(len(key)))
-		if _, err := w.Write(sz); err != nil { // key size
+		if err := writeAll(w, sz); err != nil { // key size
 			return err
 		}
-		if _, err := w.Write(key); err != nil { // key data
+		if err := writeAll(w, key); err != nil { // key data
 			return err
 		}
 
@@ -164,10 +206,10 @@ func (s *Store) SaveSnapshotToWriter(target, raftAddr string, snapshot *pebble.S
 		}
 
 		binary.LittleEndian.PutUint64(sz, uint64(len(gzipVal)))
-		if _, err := w.Write(sz); err != nil { // val size
+		if err := writeAll(w, sz); err != nil { // val size
 			return err
 		}
-		if _, err := w.Write(gzipVal); err != nil { // val data
+		if err := writeAll(w, gzipVal); err != nil { // val data
 			return err
 		}
 	}
@@ -188,97 +230,91 @@ func (s *Store) LoadSnapShotFromReader(target, raftAddr string, reader io.Reader
 	// data_nodexxxxx/clusterId/uuid
 	dbdir := getNewRandomDBDirName(s.path)
 
-	var oldDirName string
-
-	// 为了兼容现有的采用data_nodexxxxx/clusterId/current 作为当前pebbledb的存储目录
-	// fp := filepath.Join(s.path, "current")
-	// if existFilePath(fp) {
-	// 	oldDirName = fp
-	// } else {
-	// 	name, err := getCurrentDBDirName(s.path) // 从存储里拿到当前的current db目录
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	oldDirName = name
-	// }
-
 	name, err := getCurrentDBDirName(s.path) // 从存储里拿到当前的current db目录
 	if err != nil {
 		return err
 	}
-	oldDirName = name
+	oldDirName := name
 
 	newdb, err := openPebbleDB(getDefaultPebbleDBConfig(), dbdir, s.opts, s.log)
 	if err != nil {
 		return err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			newdb.Close()
+		}
+	}()
 
-	var count uint64 = 0
+	var count uint64
 	sz := make([]byte, 8)
 	start := time.Now()
+
+	batch := newdb.NewBatch()
+	defer batch.Close()
 
 	// 开始从snapshot reader里读取数据, 等到EOF退出
 	for {
 		if isStop(stopChan) {
-			return nil
+			return errors.New("snapshot stopped")
 		}
 
-		count++
-
-		// 先读key
+		// 只有读第一个 key-size 头时才允许干净的 EOF
 		_, err := io.ReadFull(reader, sz) // key size
 		if err == io.EOF {
 			break
 		}
-
 		if err != nil {
 			return err
 		}
 
 		toRead := binary.LittleEndian.Uint64(sz)
 		kdata := make([]byte, toRead)
-		_, err = io.ReadFull(reader, kdata) // key data
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		if _, err = io.ReadFull(reader, kdata); err != nil { // key data
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
-		// 再读val
-		_, err = io.ReadFull(reader, sz) // val size
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		// 再读val size
+		if _, err = io.ReadFull(reader, sz); err != nil { // val size
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
 		toRead = binary.LittleEndian.Uint64(sz)
 		vdata := make([]byte, toRead)
-		_, err = io.ReadFull(reader, vdata) // val data
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		if _, err = io.ReadFull(reader, vdata); err != nil { // val data
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
 		// gzip decode
 		ungzipVData, err := gzipDecode(vdata)
 		if err != nil {
-			continue
+			return err
 		}
 
-		// 写入db
-		newdb.Set(kdata, ungzipVData, s.wo)
+		// 写入batch
+		if err := batch.Set(kdata, ungzipVData, nil); err != nil {
+			return err
+		}
+		count++
 	}
 
 	// 同步写入db
-	// if err := newdb.Apply(wb, s.syncwo); err != nil {
-	// 	return err
-	// }
-	newdb.Flush() // db刷盘
+	if err := newdb.Apply(batch, s.syncwo); err != nil {
+		return err
+	}
+	if err := newdb.Flush(); err != nil {
+		return err
+	}
 
 	if err := saveCurrentDBDirName(s.path, dbdir); err != nil {
 		return err
@@ -288,10 +324,13 @@ func (s *Store) LoadSnapShotFromReader(target, raftAddr string, reader io.Reader
 	}
 
 	// 用新db置换老db，并close 老db
+	s.dbMu.Lock()
 	old := s.db.Swap(newdb)
 	if old != nil {
 		old.Close()
 	}
+	s.dbMu.Unlock()
+	cleanup = false
 
 	// 删除旧的pebbledb存储的文件数据
 	if err := os.RemoveAll(oldDirName); err != nil {
@@ -321,14 +360,22 @@ func (s *Store) Close() error {
 	s.closed.Store(true) // set pebbledb closed
 	s.log.Sync()
 
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+
+	var err error
 	db := s.db.Load()
 	if db != nil {
-		db.Flush()
-		db.Close()
-		db = nil
+		if ferr := db.Flush(); ferr != nil && err == nil {
+			err = ferr
+		}
+		if cerr := db.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+		s.db.Store(nil)
 	}
 
-	return nil
+	return err
 }
 
 func isStop(ch <-chan struct{}) bool {
@@ -338,6 +385,17 @@ func isStop(ch <-chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func writeAll(w io.Writer, data []byte) error {
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		if err != nil {
+			return err
+		}
+		data = data[n:]
+	}
+	return nil
 }
 
 func gzipEncode(content []byte) ([]byte, error) {

@@ -28,7 +28,11 @@ func (mh *KVHandle) Info(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	info, _ := mh.raftStorage.GetMembership(ctx)
+	info, err := mh.raftStorage.GetMembership(ctx)
+	if err != nil {
+		utils.SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
 	utils.SetStrResp(http.StatusOK, 0, "", info, c)
 }
 
@@ -82,6 +86,12 @@ func (mh *KVHandle) Delete(c *gin.Context) {
 func (mh *KVHandle) JoinNode(c *gin.Context) {
 	nodeAddr := c.Query("addr")
 
+	nodeID, err := utils.Addr2RaftNodeID(nodeAddr)
+	if err != nil {
+		utils.SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
 	raftAddrs := mh.raftStorage.GetNodeHost()
 	for _, raftAddr := range raftAddrs {
 		if nodeAddr == raftAddr {
@@ -90,7 +100,7 @@ func (mh *KVHandle) JoinNode(c *gin.Context) {
 		}
 	}
 
-	err := mh.raftStorage.AddRaftNode(utils.Addr2RaftNodeID(nodeAddr), nodeAddr)
+	err = mh.raftStorage.AddRaftNode(nodeID, nodeAddr)
 	if err != nil {
 		utils.SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
@@ -101,7 +111,13 @@ func (mh *KVHandle) JoinNode(c *gin.Context) {
 func (mh *KVHandle) DelNode(c *gin.Context) {
 	nodeAddr := c.Query("addr")
 
-	err := mh.raftStorage.RemoveRaftNode(utils.Addr2RaftNodeID(nodeAddr))
+	nodeID, err := utils.Addr2RaftNodeID(nodeAddr)
+	if err != nil {
+		utils.SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
+
+	err = mh.raftStorage.RemoveRaftNode(nodeID)
 	if err != nil {
 		utils.SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return

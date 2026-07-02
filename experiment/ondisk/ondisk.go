@@ -111,7 +111,7 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 		}
 
 		if err := nh.StartOnDiskCluster(peers, join, NewDiskKV, rc); err != nil {
-			panic(err)
+			return err
 		}
 
 		disk.clusterSession[clusterID] = disk.nodehost.GetNoOPSession(clusterID)
@@ -120,7 +120,7 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 	for _, clusterID := range disk.RaftClusterIDs {
 		nodeuser, err := disk.nodehost.GetNodeUser(clusterID)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		disk.nodeUsers[clusterID] = nodeuser
 	}
@@ -128,7 +128,7 @@ func (disk *OnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr string
 	return nil
 }
 
-func checkRequestState(rs *dragonboat.RequestState) (sm.Result, error) {
+func checkRequestState(rs *dragonboat.RequestState, timeout time.Duration) (sm.Result, error) {
 	select {
 	case r := <-rs.CompletedC:
 		if r.Completed() {
@@ -142,6 +142,8 @@ func checkRequestState(rs *dragonboat.RequestState) (sm.Result, error) {
 		} else if r.Dropped() {
 			return sm.Result{}, dragonboat.ErrClusterNotReady
 		}
+	case <-time.After(timeout):
+		return sm.Result{}, dragonboat.ErrTimeout
 	}
 
 	return sm.Result{}, nil
@@ -152,12 +154,14 @@ func (disk *OnDiskRaft) Write(kv *store.Command) error {
 	clusterID := disk.RaftClusterIDs[idx]
 	cs := disk.clusterSession[clusterID]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-	cmdBytes, _ := kv.Marshal()
+	cmdBytes, err := kv.Marshal()
+	if err != nil {
+		return err
+	}
 
-	_, err := disk.nodehost.SyncPropose(ctx, cs, cmdBytes)
-
-	cancel()
+	_, err = disk.nodehost.SyncPropose(ctx, cs, cmdBytes)
 	return err
 }
 
@@ -166,7 +170,10 @@ func (disk *OnDiskRaft) AdvanceWrite(kv *store.Command) error {
 	clusterID := disk.RaftClusterIDs[idx]
 	cs := disk.clusterSession[clusterID]
 
-	cmdBytes, _ := kv.Marshal()
+	cmdBytes, err := kv.Marshal()
+	if err != nil {
+		return err
+	}
 
 	rs, err := disk.nodeUsers[clusterID].Propose(cs, cmdBytes, 3*time.Second)
 
@@ -180,7 +187,7 @@ func (disk *OnDiskRaft) AdvanceWrite(kv *store.Command) error {
 		return err
 	}
 
-	_, err = checkRequestState(rs)
+	_, err = checkRequestState(rs, 3*time.Second)
 
 	return err
 }
@@ -190,14 +197,18 @@ func (disk *OnDiskRaft) SyncRead(key string, hashKey uint64) (*store.RaftAttribu
 	idx := hashKey % uint64(len(disk.RaftClusterIDs))
 	clusterID := disk.RaftClusterIDs[idx]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
-	cancel()
+	defer cancel()
 
+	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	if err != nil {
 		return nil, err
 	}
 
-	return result.(*store.RaftAttribute), nil
+	attr, ok := result.(*store.RaftAttribute)
+	if !ok {
+		return nil, fmt.Errorf("invalid read result type: %T", result)
+	}
+	return attr, nil
 }
 
 func (disk *OnDiskRaft) AdvanceSyncRead(key string, hashKey uint64) (*store.RaftAttribute, error) {
@@ -215,7 +226,7 @@ func (disk *OnDiskRaft) AdvanceSyncRead(key string, hashKey uint64) (*store.Raft
 		return nil, err
 	}
 
-	_, err = checkRequestState(rs)
+	_, err = checkRequestState(rs, 3*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -241,14 +252,23 @@ func (disk *OnDiskRaft) ReadLocal(key string, hashKey uint64) (*store.RaftAttrib
 		return nil, err
 	}
 
-	return result.(*store.RaftAttribute), nil
+	attr, ok := result.(*store.RaftAttribute)
+	if !ok {
+		return nil, fmt.Errorf("invalid read result type: %T", result)
+	}
+	return attr, nil
 }
 
 func (disk *OnDiskRaft) Stop() {
-	disk.nodehost.Stop()
+	if disk.nodehost != nil {
+		disk.nodehost.Stop()
+	}
 
+	disk.lock.Lock()
 	disk.clusterMetrics = make(map[uint64]*ondiskMetrics)
 	disk.clusterSession = make(map[uint64]*client.Session)
+	disk.nodeUsers = make(map[uint64]dragonboat.INodeUser)
+	disk.lock.Unlock()
 }
 
 // MetricsInfo 用于做写入次数的统计
@@ -286,14 +306,16 @@ func (disk *OnDiskRaft) RaftAddNode(nodeID uint64, nodeAddr string) error {
 	}
 
 	for _, clusterID := range disk.RaftClusterIDs {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		ms, err := disk.nodehost.SyncGetClusterMembership(ctx, uint64(clusterID))
+		cancel()
 		if err != nil {
 			return err
 		}
 
-		ctx2, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 		err = disk.nodehost.SyncRequestAddNode(ctx2, clusterID, nodeID, nodeAddr, ms.ConfigChangeID)
+		cancel2()
 		if err != nil {
 			return err
 		}
@@ -304,14 +326,16 @@ func (disk *OnDiskRaft) RaftAddNode(nodeID uint64, nodeAddr string) error {
 
 func (disk *OnDiskRaft) RaftRemoveNode(nodeId uint64) error {
 	for _, clusterID := range disk.RaftClusterIDs {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		ms, err := disk.nodehost.SyncGetClusterMembership(ctx, uint64(clusterID))
+		cancel()
 		if err != nil {
 			return err
 		}
 
-		ctx2, _ := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 		err = disk.nodehost.SyncRequestDeleteNode(ctx2, uint64(clusterID), nodeId, ms.ConfigChangeID)
+		cancel2()
 		if err != nil {
 			return err
 		}

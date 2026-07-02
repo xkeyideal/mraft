@@ -80,7 +80,7 @@ func (disk *SimpleOnDiskRaft) Start(raftDataDir string, nodeID uint64, nodeAddr 
 		}
 
 		if err := nh.StartOnDiskCluster(peers, join, NewSimpleDiskKV, rc); err != nil {
-			panic(err)
+			return err
 		}
 
 		disk.clusterSession[clusterID] = disk.nodehost.GetNoOPSession(clusterID)
@@ -94,13 +94,15 @@ func (disk *SimpleOnDiskRaft) Write(key string, hashKey uint64, value int) error
 	clusterID := disk.RaftClusterIDs[idx]
 	cs := disk.clusterSession[clusterID]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
 	d := kv{key, value}
-	b, _ := json.Marshal(d)
+	b, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
 
-	_, err := disk.nodehost.SyncPropose(ctx, cs, b)
-
-	cancel()
+	_, err = disk.nodehost.SyncPropose(ctx, cs, b)
 	return err
 }
 
@@ -109,14 +111,18 @@ func (disk *SimpleOnDiskRaft) SyncRead(key string, hashKey uint64) ([]byte, erro
 	idx := hashKey % uint64(len(disk.RaftClusterIDs))
 	clusterID := disk.RaftClusterIDs[idx]
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
-	cancel()
+	defer cancel()
 
+	result, err := disk.nodehost.SyncRead(ctx, clusterID, []byte(key))
 	if err != nil {
 		return nil, err
 	}
 
-	return result.([]byte), nil
+	data, ok := result.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid read result type: %T", result)
+	}
+	return data, nil
 }
 
 // ReadLocal 读本地
@@ -129,11 +135,17 @@ func (disk *SimpleOnDiskRaft) ReadLocal(key string, hashKey uint64) ([]byte, err
 		return nil, err
 	}
 
-	return result.([]byte), nil
+	data, ok := result.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid read result type: %T", result)
+	}
+	return data, nil
 }
 
 func (disk *SimpleOnDiskRaft) Stop() {
-	disk.nodehost.Stop()
+	if disk.nodehost != nil {
+		disk.nodehost.Stop()
+	}
 
 	disk.clusterSession = make(map[uint64]*client.Session)
 }

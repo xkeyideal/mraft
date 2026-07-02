@@ -149,10 +149,28 @@ func NewStorage(cfg *RaftConfig) (*Storage, error) {
 	// 根据分配好的每个节点归属的clusterIds来初始化实例
 	err = s.stateMachine(cfg.Join, dataDir, cfg.ClusterIds)
 	if err != nil {
+		s.cleanupOnError()
 		return nil, err
 	}
 
 	return s, nil
+}
+
+func (s *Storage) cleanupOnError() {
+	if s.nh != nil {
+		s.nh.Stop()
+		s.nh = nil
+	}
+
+	s.mu.Lock()
+	for _, st := range s.smMap {
+		if st != nil {
+			st.Close()
+		}
+	}
+	s.mu.Unlock()
+
+	s.stopper.Close()
 }
 
 func (s *Storage) stateMachine(join map[uint64]map[uint64]bool, dataDir string, clusterIds []uint64) error {
@@ -177,9 +195,13 @@ func (s *Storage) stateMachine(join map[uint64]map[uint64]bool, dataDir string, 
 
 		rc := buildRaftConfig(s.cfg.NodeId, clusterId)
 		clusterDataPath := filepath.Join(dataDir, strconv.Itoa(int(clusterId)))
+
+		// 如果该cluster的数据目录已经初始化过，说明是重启，join必须传false
+		isRestart := store.IsInitialized(clusterDataPath)
 		if err := os.MkdirAll(clusterDataPath, os.ModePerm); err != nil {
 			return err
 		}
+
 		opts := store.PebbleClusterOption{
 			Target:    s.target,
 			NodeId:    s.cfg.NodeId,
@@ -192,31 +214,40 @@ func (s *Storage) stateMachine(join map[uint64]map[uint64]bool, dataDir string, 
 			return err
 		}
 
-		store, err := store.NewStore(clusterId, clusterDataPath, pebbleDBDir, opts, s.log)
+		st, err := store.NewStore(clusterId, clusterDataPath, pebbleDBDir, opts, s.log)
 		if err != nil {
 			return err
 		}
 
+		if isRestart {
+			nodeJoin = false
+		}
+
 		if !nodeJoin {
-			initialMembers, ok = s.cfg.InitialMembers[clusterId]
-			if !ok {
-				return fmt.Errorf("raft clusterId: %d, can't find initial members", clusterId)
+			if isRestart {
+				initialMembers = make(map[uint64]string)
+			} else {
+				initialMembers, ok = s.cfg.InitialMembers[clusterId]
+				if !ok {
+					return fmt.Errorf("raft clusterId: %d, can't find initial members", clusterId)
+				}
 			}
 		} else {
 			initialMembers = make(map[uint64]string)
 		}
 
-		stateMachine := newStateMachine(s.cfg.RaftAddr, s.target, clusterId, s.cfg.NodeId, store)
+		stateMachine := newStateMachine(s.cfg.RaftAddr, s.target, clusterId, s.cfg.NodeId, st)
 		err = s.nh.StartOnDiskCluster(initialMembers, nodeJoin, func(_ uint64, _ uint64) sm.IOnDiskStateMachine {
 			return stateMachine
 		}, rc)
 		if err != nil {
+			st.Close()
 			return err
 		}
 
 		s.mu.Lock()
 		s.csMap[clusterId] = s.nh.GetNoOPSession(clusterId)
-		s.smMap[clusterId] = store
+		s.smMap[clusterId] = st
 		s.mu.Unlock()
 	}
 
@@ -224,11 +255,16 @@ func (s *Storage) stateMachine(join map[uint64]map[uint64]bool, dataDir string, 
 }
 
 func (s *Storage) RaftReady() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
 	ch := make(chan struct{}, 1)
-	go s.nodeReady(s.cfg.ClusterIds, ch)
+	go s.nodeReady(ctx, s.cfg.ClusterIds, ch)
 
 	select {
 	case <-ch:
+	case <-ctx.Done():
+		return fmt.Errorf("raft ready timeout: %w", ctx.Err())
 	}
 
 	// 集群启动后，先同步一遍membership
@@ -253,50 +289,73 @@ func (s *Storage) RaftReady() error {
 	return nil
 }
 
-func (s *Storage) nodeReady(clusterIds []uint64, ch chan<- struct{}) {
+func (s *Storage) nodeReady(ctx context.Context, clusterIds []uint64, ch chan<- struct{}) {
 	wg := sync.WaitGroup{}
 	wg.Add(len(clusterIds))
 	for _, clusterId := range clusterIds {
 		go func(clusterId uint64) {
-			clusterReady := false
+			defer wg.Done()
+
 			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
 				_, ready, err := s.nh.GetLeaderID(clusterId)
 				if err == nil && ready {
-					clusterReady = true
-					break
+					log.Println("nodeReady", s.target, clusterId, "ready")
+					return
 				}
 
 				if err != nil {
 					log.Println("nodeReady", s.target, clusterId, err.Error())
 				}
 
-				time.Sleep(1000 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(1 * time.Second):
+				}
 			}
-
-			if clusterReady {
-				log.Println("nodeReady", s.target, clusterId, "ready")
-			}
-
-			wg.Done()
 		}(clusterId)
 	}
 
 	wg.Wait()
 
-	ch <- struct{}{}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Storage) RequestLeaderTransfer(clusterID, nodeId uint64) error {
-	return s.nh.RequestLeaderTransfer(clusterID, nodeId)
+	nh, err := s.nodeHost()
+	if err != nil {
+		return err
+	}
+	return nh.RequestLeaderTransfer(clusterID, nodeId)
 }
 
 func (s *Storage) StopRaftNode() error {
 	atomic.StoreUint32(&s.status, unready)
 
+	s.mu.Lock()
 	if s.nh != nil {
 		s.nh.Stop()
 		s.nh = nil
 	}
+	for clusterId, st := range s.smMap {
+		if st != nil {
+			if err := st.Close(); err != nil {
+				s.log.Warn("close pebble store failed", zap.Uint64("clusterId", clusterId), zap.Error(err))
+			}
+		}
+	}
+	s.smMap = make(map[uint64]*store.Store)
+	s.csMap = make(map[uint64]*client.Session)
+	s.mu.Unlock()
 
 	s.log.Sync()
 	s.stopper.Close()
@@ -304,18 +363,38 @@ func (s *Storage) StopRaftNode() error {
 }
 
 func (s *Storage) GetNodeHost() map[uint64]string {
-	info := s.nh.GetNodeHostInfo(dragonboat.NodeHostInfoOption{
+	nh, err := s.nodeHost()
+	if err != nil {
+		return map[uint64]string{}
+	}
+
+	info := nh.GetNodeHostInfo(dragonboat.NodeHostInfoOption{
 		SkipLogInfo: true,
 	})
 
-	return info.ClusterInfoList[0].Nodes
+	if len(info.ClusterInfoList) == 0 {
+		return map[uint64]string{}
+	}
+
+	nodes := make(map[uint64]string)
+	for _, ci := range info.ClusterInfoList {
+		for nodeId, addr := range ci.Nodes {
+			nodes[nodeId] = addr
+		}
+	}
+	return nodes
 }
 
 func (s *Storage) GetMembership(ctx context.Context) ([]*MemberInfo, error) {
+	nh, err := s.nodeHost()
+	if err != nil {
+		return nil, err
+	}
+
 	memberInfoList := make([]*MemberInfo, 0, len(s.cfg.ClusterIds))
 	for _, clusterId := range s.cfg.ClusterIds {
 		childCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		membership, err := s.nh.SyncGetClusterMembership(childCtx, uint64(clusterId))
+		membership, err := nh.SyncGetClusterMembership(childCtx, uint64(clusterId))
 		cancel()
 		if err != nil {
 			return nil, err
@@ -327,7 +406,7 @@ func (s *Storage) GetMembership(ctx context.Context) ([]*MemberInfo, error) {
 			Observers:      membership.Observers,
 		}
 		memberInfoList = append(memberInfoList, info)
-		leaderID, valid, err := s.nh.GetLeaderID(uint64(clusterId))
+		leaderID, valid, err := nh.GetLeaderID(uint64(clusterId))
 		if err != nil {
 			return nil, err
 		}
@@ -350,12 +429,17 @@ func (s *Storage) getClusterId(hashKey string) uint64 {
 }
 
 func (s *Storage) getClusterMembership(clusterId uint64) (*MemberInfo, error) {
+	nh, err := s.nodeHost()
+	if err != nil {
+		return nil, err
+	}
+
 	membership, err := s.clusterMembership(clusterId)
 	if err != nil {
 		return nil, err
 	}
 
-	leaderID, valid, err := s.nh.GetLeaderID(clusterId)
+	leaderID, valid, err := nh.GetLeaderID(clusterId)
 	if err != nil {
 		return nil, err
 	}

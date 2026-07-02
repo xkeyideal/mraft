@@ -11,7 +11,7 @@ func (engine *Engine) registerRouter(router *gin.Engine) {
 		group.POST("/key", engine.kvHandle.Upsert)
 		group.DELETE("/key", engine.kvHandle.Delete)
 
-		group.GET("/join", engine.kvHandle.JoinNode)
-		group.GET("/del", engine.kvHandle.DelNode)
+		group.POST("/join", engine.kvHandle.JoinNode)
+		group.DELETE("/del", engine.kvHandle.DelNode)
 	}
 }

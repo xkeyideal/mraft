@@ -2,12 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/xkeyideal/mraft/config"
 	"github.com/xkeyideal/mraft/experiment/ondisk"
 	"github.com/xkeyideal/mraft/experiment/ondisk/raftd"
 
@@ -19,6 +19,7 @@ type Engine struct {
 
 	nodeID      uint64
 	raftDataDir string
+	raftAddr    string
 
 	server *http.Server
 	router *gin.Engine
@@ -28,27 +29,35 @@ type Engine struct {
 	mraftHandle *raftd.MRaftHandle
 }
 
-func NewEngine(nodeID uint64, port string) *Engine {
+var clusterIDs = []uint64{14000, 14100, 14200}
 
-	cfg := config.NewOnDiskRaftConfig()
+func isJoinNode(nodeID uint64) bool {
+	return nodeID == 10003 || nodeID == 10004 || nodeID == 10005
+}
+
+func NewEngine(nodeID uint64, httpPort int, raftDataDir, raftAddr string, initialPeers map[uint64]string) *Engine {
+
+	// 状态机与 dragonboat NodeHost 共享同一个根目录，子目录不同
+	ondisk.SetDBDir(raftDataDir)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
 
 	var nh *ondisk.OnDiskRaft
-	if nodeID == 10003 || nodeID == 10004 || nodeID == 5 {
-		nh = ondisk.NewOnDiskRaft(map[uint64]string{}, cfg.RaftClusterIDs)
+	if isJoinNode(nodeID) {
+		nh = ondisk.NewOnDiskRaft(map[uint64]string{}, clusterIDs)
 	} else {
-		nh = ondisk.NewOnDiskRaft(cfg.RaftNodePeers, cfg.RaftClusterIDs)
+		nh = ondisk.NewOnDiskRaft(initialPeers, clusterIDs)
 	}
 
 	engine := &Engine{
 		nodeID:      nodeID,
-		raftDataDir: cfg.RaftDataDir,
+		raftDataDir: raftDataDir,
+		raftAddr:    raftAddr,
 		prefix:      "/mraft",
 		router:      router,
 		server: &http.Server{
-			Addr:         fmt.Sprintf("0.0.0.0:%s", port), //"9080"
+			Addr:         fmt.Sprintf("0.0.0.0:%d", httpPort),
 			Handler:      router,
 			ReadTimeout:  20 * time.Second,
 			WriteTimeout: 40 * time.Second,
@@ -63,20 +72,15 @@ func NewEngine(nodeID uint64, port string) *Engine {
 }
 
 func (engine *Engine) Start() {
-	join := false
+	join := isJoinNode(engine.nodeID)
 	nodeAddr := ""
-	if engine.nodeID == 10003 {
-		join = true
-		nodeAddr = "10.181.20.34:11300"
-	} else if engine.nodeID == 10004 {
-		join = true
-		nodeAddr = "10.181.20.34:11400"
-	} else if engine.nodeID == 10005 {
-		join = true
-		nodeAddr = "10.181.20.34:11500"
+	if join {
+		nodeAddr = engine.raftAddr
 	}
 
-	engine.nh.Start(engine.raftDataDir, engine.nodeID, nodeAddr, join)
+	if err := engine.nh.Start(engine.raftDataDir, engine.nodeID, nodeAddr, join); err != nil {
+		log.Fatalf("start raft failed: %v", err)
+	}
 
 	// 等待raft集群ready
 	for {
@@ -88,7 +92,7 @@ func (engine *Engine) Start() {
 
 	log.Println("cluster all ready")
 
-	if err := engine.server.ListenAndServe(); err != nil {
+	if err := engine.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err.Error())
 	}
 }
@@ -100,5 +104,7 @@ func (engine *Engine) Stop() {
 		}
 	}
 
-	engine.nh.Stop()
+	if engine.nh != nil {
+		engine.nh.Stop()
+	}
 }

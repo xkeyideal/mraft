@@ -39,7 +39,10 @@ func (c *PutCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
 	batch := s.Batch()
 	defer batch.Close()
 
-	cf := s.GetColumnFamily(c.Cf)
+	cf, err := s.GetColumnFamily(c.Cf)
+	if err != nil {
+		return err
+	}
 
 	revisionValue := make([]byte, 8)
 	binary.BigEndian.PutUint64(revisionValue, wo.Revision)

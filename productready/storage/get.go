@@ -34,7 +34,10 @@ func (c *GetCommand) RaftInvoke(ctx context.Context, nh *dragonboat.NodeHost, cl
 }
 
 func (c *GetCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
-	cf := s.GetColumnFamily(c.Cf)
+	cf, err := s.GetColumnFamily(c.Cf)
+	if err != nil {
+		return err
+	}
 
 	// get revision
 	v, err := s.GetBytes(s.BuildColumnFamilyKey(cf, buildRevisionKey(c.Key)))

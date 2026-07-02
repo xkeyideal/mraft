@@ -3,6 +3,7 @@ package storage
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 
@@ -64,6 +65,10 @@ func (r *StateMachine) Open(stopChan <-chan struct{}) (uint64, error) {
 			return 0, nil
 		}
 
+		if len(val) != 8 {
+			return 0, fmt.Errorf("invalid applied index length: %d", len(val))
+		}
+
 		return binary.BigEndian.Uint64(val), nil
 	}
 }
@@ -73,16 +78,17 @@ func (r *StateMachine) Update(entries []sm.Entry) ([]sm.Entry, error) {
 		return entries, nil
 	}
 
-	resultEntries := make([]sm.Entry, 0, len(entries))
+	if len(entries) == 0 {
+		return entries, nil
+	}
 
 	//  将raft的日志转换为db要执行的命令
-	for _, e := range entries {
-		r, err := r.processEntry(e)
+	for i := range entries {
+		re, err := r.processEntry(entries[i])
 		if err != nil {
-			return nil, err
+			return entries, err
 		}
-
-		resultEntries = append(resultEntries, r)
+		entries[i] = re
 	}
 
 	idx := entries[len(entries)-1].Index
@@ -95,10 +101,10 @@ func (r *StateMachine) Update(entries []sm.Entry) ([]sm.Entry, error) {
 	// 更新revision的值
 	batch.Set(r.indexKey, idxByte, pebble.Sync)
 	if err := r.store.Write(batch); err != nil {
-		return nil, err
+		return entries, err
 	}
 
-	return resultEntries, nil
+	return entries, nil
 }
 
 func (r *StateMachine) processEntry(e sm.Entry) (sm.Entry, error) {
@@ -126,7 +132,12 @@ func (r *StateMachine) Lookup(query interface{}) (interface{}, error) {
 		return nil, pebble.ErrClosed
 	}
 
-	cmd, err := DecodeCmd(query.([]byte))
+	q, ok := query.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid query type: %T", query)
+	}
+
+	cmd, err := DecodeCmd(q)
 	if err != nil {
 		return nil, err
 	}

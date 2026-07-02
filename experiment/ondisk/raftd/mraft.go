@@ -2,7 +2,7 @@ package raftd
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -55,7 +55,7 @@ func (mh *MRaftHandle) Query(c *gin.Context) {
 }
 
 func (mh *MRaftHandle) Upsert(c *gin.Context) {
-	bytes, err := ioutil.ReadAll(c.Request.Body)
+	bytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
@@ -74,13 +74,16 @@ func (mh *MRaftHandle) Upsert(c *gin.Context) {
 		return
 	}
 
-	mh.raft.Write(cmd)
+	if err := mh.raft.Write(cmd); err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
 
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }
 
 func (mh *MRaftHandle) Delete(c *gin.Context) {
-	bytes, err := ioutil.ReadAll(c.Request.Body)
+	bytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
 		return
@@ -99,7 +102,10 @@ func (mh *MRaftHandle) Delete(c *gin.Context) {
 		return
 	}
 
-	mh.raft.Write(cmd)
+	if err := mh.raft.Write(cmd); err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
 
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }

@@ -19,7 +19,14 @@ func (e *raftEvent) LeaderUpdated(info raftio.LeaderInfo) {
 	)
 
 	if atomic.LoadUint32(&e.s.status) == ready && info.LeaderID != 0 {
-		e.s.leaderc <- info
+		select {
+		case e.s.leaderc <- info:
+		default:
+			e.s.log.Warn("[raftstorage] [event] [LeaderUpdated] leaderc full, dropping event",
+				zap.String("target", e.s.target),
+				zap.Any("info", info),
+			)
+		}
 	}
 }
 
@@ -41,7 +48,14 @@ func (e *systemEvent) NodeReady(info raftio.NodeInfo) {
 func (e *systemEvent) MembershipChanged(info raftio.NodeInfo) {
 	e.s.log.Warn("[raftstorage] [event] [MembershipChanged]", zap.String("target", e.s.target), zap.Any("info", info))
 	if atomic.LoadUint32(&e.s.status) == ready {
-		e.s.memberc <- info
+		select {
+		case e.s.memberc <- info:
+		default:
+			e.s.log.Warn("[raftstorage] [event] [MembershipChanged] memberc full, dropping event",
+				zap.String("target", e.s.target),
+				zap.Any("info", info),
+			)
+		}
 	}
 }
 func (e *systemEvent) ConnectionEstablished(info raftio.ConnectionInfo) {

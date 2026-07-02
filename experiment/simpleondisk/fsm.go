@@ -56,7 +56,7 @@ func (d *SimpleDiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 	default:
 		dir := getNodeDBDirName(d.clusterID, d.nodeID)
 		if err := createNodeDataDir(dir); err != nil {
-			return 0, nil
+			return 0, err
 		}
 
 		var dbdir string
@@ -84,14 +84,14 @@ func (d *SimpleDiskKV) Open(stopc <-chan struct{}) (uint64, error) {
 			}
 		}
 
-		store, err := store.NewStore(dbdir)
+		st, err := store.NewStore(dbdir)
 		if err != nil {
 			return 0, err
 		}
 
 		d.dbIndex = 0
 
-		d.stores[d.dbIndex] = store
+		d.stores[d.dbIndex] = st
 		appliedIndex, err := d.queryAppliedIndex()
 		if err != nil {
 			return 0, err
@@ -113,6 +113,13 @@ func (d *SimpleDiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 	}
 
 	dbIndex := atomic.LoadUint32(&d.dbIndex)
+	db := d.stores[dbIndex]
+
+	batch := db.Batch()
+	defer batch.Close()
+
+	// 同一批 entry 中对相同 key 的更新必须互相可见
+	pending := make(map[string]int)
 
 	for index, entry := range ents {
 		if entry.Index <= d.lastApplied {
@@ -120,27 +127,46 @@ func (d *SimpleDiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 		}
 
 		data := &kv{}
-		json.Unmarshal(entry.Cmd, data)
+		if err := json.Unmarshal(entry.Cmd, data); err != nil {
+			return ents, err
+		}
 
-		oldVal, err := d.NALookup([]byte(data.Key))
-
-		if err != nil {
-			d.stores[dbIndex].SetKv([]byte(data.Key), []byte(strconv.Itoa(data.Val)))
+		cur := 0
+		if v, ok := pending[data.Key]; ok {
+			cur = v
 		} else {
-			v, err := strconv.ParseInt(string(oldVal), 10, 32)
+			oldVal, err := d.NALookup([]byte(data.Key))
 			if err != nil {
-				fmt.Printf("%s ParseInt %s", string(oldVal), err.Error())
-				continue
+				if err != pebble.ErrNotFound {
+					return ents, err
+				}
+			} else {
+				v, err := strconv.ParseInt(string(oldVal), 10, 32)
+				if err != nil {
+					return ents, fmt.Errorf("parse old value %q: %w", string(oldVal), err)
+				}
+				cur = int(v)
 			}
+		}
 
-			d.stores[dbIndex].SetKv([]byte(data.Key), []byte(strconv.Itoa(data.Val+int(v))))
+		newVal := cur + data.Val
+		pending[data.Key] = newVal
+
+		if err := batch.Set([]byte(data.Key), []byte(strconv.Itoa(newVal)), nil); err != nil {
+			return ents, err
 		}
 
 		ents[index].Result = sm.Result{Value: uint64(len(ents[index].Cmd))}
 	}
 
 	idx := fmt.Sprintf("%d", ents[len(ents)-1].Index)
-	d.stores[dbIndex].SetKv([]byte(appliedIndexKey), []byte(idx))
+	if err := batch.Set([]byte(appliedIndexKey), []byte(idx), nil); err != nil {
+		return ents, err
+	}
+
+	if err := db.Write(batch); err != nil {
+		return ents, err
+	}
 
 	d.lastApplied = ents[len(ents)-1].Index
 
@@ -149,10 +175,14 @@ func (d *SimpleDiskKV) Update(ents []sm.Entry) ([]sm.Entry, error) {
 
 // Lookup 与 Update and RecoverFromSnapshot 是并发安全的
 func (d *SimpleDiskKV) Lookup(key interface{}) (interface{}, error) {
+	k, ok := key.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("invalid key type: %T", key)
+	}
+
 	dbIndex := atomic.LoadUint32(&d.dbIndex)
 	if d.stores[dbIndex] != nil {
-		v, err := d.stores[dbIndex].NALookup(key.([]byte))
-		return v, err
+		return d.stores[dbIndex].NALookup(k)
 	}
 	return nil, errors.New("db is nil")
 }
@@ -180,13 +210,17 @@ func (d *SimpleDiskKV) PrepareSnapshot() (interface{}, error) {
 	}, nil
 }
 
-func (d *SimpleDiskKV) saveToWriter(store *store.Store, snapshot *pebble.Snapshot, w io.Writer) error {
+func (d *SimpleDiskKV) saveToWriter(store *store.Store, snapshot *pebble.Snapshot, w io.Writer, done <-chan struct{}) error {
 	iter := snapshot.NewIter(store.GetRo())
 	defer iter.Close()
 
 	keySize := make([]byte, 4)
 	valSize := make([]byte, 4)
 	for iter.First(); iter.Valid(); iter.Next() {
+		if isStop(done) {
+			return errors.New("snapshot stopped")
+		}
+
 		key := iter.Key()
 		val := iter.Value()
 
@@ -194,20 +228,20 @@ func (d *SimpleDiskKV) saveToWriter(store *store.Store, snapshot *pebble.Snapsho
 		vl := len(val)
 
 		binary.LittleEndian.PutUint32(keySize, uint32(kl))
-		if _, err := w.Write(keySize); err != nil {
+		if err := writeAll(w, keySize); err != nil {
 			return err
 		}
 
-		if _, err := w.Write(key); err != nil {
+		if err := writeAll(w, key); err != nil {
 			return err
 		}
 
 		binary.LittleEndian.PutUint32(valSize, uint32(vl))
-		if _, err := w.Write(valSize); err != nil {
+		if err := writeAll(w, valSize); err != nil {
 			return err
 		}
 
-		if _, err := w.Write(val); err != nil {
+		if err := writeAll(w, val); err != nil {
 			return err
 		}
 	}
@@ -227,7 +261,7 @@ func (d *SimpleDiskKV) SaveSnapshot(ctx interface{}, w io.Writer, done <-chan st
 
 		defer ss.Close()
 
-		return d.saveToWriter(store, ss, w)
+		return d.saveToWriter(store, ss, w, done)
 	}
 }
 
@@ -240,10 +274,16 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 		return err
 	}
 
-	store, err := store.NewStore(dbdir)
+	st, err := store.NewStore(dbdir)
 	if err != nil {
 		return err
 	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			st.Close()
+		}
+	}()
 
 	sz := make([]byte, 4)
 	for {
@@ -251,49 +291,49 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 			return sm.ErrSnapshotStopped
 		}
 
-		// 先读key
-		_, err := io.ReadFull(reader, sz) // key size
+		// 只有读第一个 key-size 头时才允许干净的 EOF
+		_, err := io.ReadFull(reader, sz)
 		if err == io.EOF {
 			break
 		}
-
 		if err != nil {
 			return err
 		}
 
 		toRead := binary.LittleEndian.Uint32(sz)
 		kdata := make([]byte, toRead)
-		_, err = io.ReadFull(reader, kdata) // key data
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		if _, err = io.ReadFull(reader, kdata); err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
-		// 再读val
-		_, err = io.ReadFull(reader, sz) // val size
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		// 再读val size
+		if _, err = io.ReadFull(reader, sz); err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
 		toRead = binary.LittleEndian.Uint32(sz)
 		vdata := make([]byte, toRead)
-		_, err = io.ReadFull(reader, vdata) // val data
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
+		if _, err = io.ReadFull(reader, vdata); err != nil {
+			if err == io.EOF {
+				return io.ErrUnexpectedEOF
+			}
 			return err
 		}
 
-		store.SetKv(kdata, vdata)
+		if err := st.SetKv(kdata, vdata); err != nil {
+			return err
+		}
 	}
 
-	store.Flush() // db 刷盘
+	if err := st.Flush(); err != nil {
+		return err
+	}
 
 	if err := saveCurrentDBDirName(dir, dbdir); err != nil {
 		return err
@@ -305,14 +345,17 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 	oldDbIndex := atomic.LoadUint32(&d.dbIndex)
 	newDbIndex := 1 - oldDbIndex
 	atomic.StoreUint32(&d.dbIndex, newDbIndex)
-	d.stores[newDbIndex] = store
+	d.stores[newDbIndex] = st
+	cleanup = false
 
 	newLastApplied, err := d.queryAppliedIndex()
 	if err != nil {
 		return err
 	}
 
-	d.stores[oldDbIndex].Close()
+	if old := d.stores[oldDbIndex]; old != nil {
+		old.Close()
+	}
 
 	d.lastApplied = newLastApplied
 
@@ -320,13 +363,16 @@ func (d *SimpleDiskKV) RecoverFromSnapshot(reader io.Reader, done <-chan struct{
 }
 
 func (d *SimpleDiskKV) Close() error {
+	var err error
 	for i := 0; i < 2; i++ {
 		if d.stores[i] != nil {
-			d.stores[i].Close()
+			if cerr := d.stores[i].Close(); cerr != nil && err == nil {
+				err = cerr
+			}
 		}
 	}
 
-	return nil
+	return err
 }
 
 func (d *SimpleDiskKV) Sync() error {
@@ -340,4 +386,15 @@ func isStop(ch <-chan struct{}) bool {
 	default:
 		return false
 	}
+}
+
+func writeAll(w io.Writer, data []byte) error {
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		if err != nil {
+			return err
+		}
+		data = data[n:]
+	}
+	return nil
 }

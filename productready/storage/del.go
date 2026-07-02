@@ -32,7 +32,10 @@ func (c *DelCommand) LocalInvoke(s *store.Store, opts ...*WriteOptions) error {
 	batch := s.Batch()
 	defer batch.Close()
 
-	cf := s.GetColumnFamily(c.CfName)
+	cf, err := s.GetColumnFamily(c.CfName)
+	if err != nil {
+		return err
+	}
 
 	batch.Delete(s.BuildColumnFamilyKey(cf, c.Key), pebble.Sync)
 

@@ -2,7 +2,9 @@ package httpengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,15 +13,7 @@ import (
 	"github.com/xkeyideal/mraft/experiment/simpleondisk"
 )
 
-var (
-	RaftDataDir   = "/Volumes/ST1000/mraft-simpleondisk"
-	RaftNodePeers = map[uint64]string{
-		10000: "10.101.44.4:34000",
-		10001: "10.101.44.4:34100",
-		10002: "10.101.44.4:34200",
-	}
-	RaftClusterIDs = []uint64{234000, 234100, 234200}
-)
+var raftClusterIDs = []uint64{234000, 234100, 234200}
 
 type Engine struct {
 	nodeID      uint64
@@ -31,19 +25,27 @@ type Engine struct {
 	nh *simpleondisk.SimpleOnDiskRaft
 }
 
-func NewEngine(nodeID uint64, port string) *Engine {
+func NewEngine(nodeID uint64, httpPort int, raftDataDir, ip string, baseRaftPort uint64) *Engine {
+
+	simpleondisk.SetDBDir(raftDataDir)
+
+	peers := make(map[uint64]string)
+	for _, id := range []uint64{10000, 10001, 10002} {
+		p := baseRaftPort + (id - 10000)
+		peers[id] = fmt.Sprintf("%s:%d", ip, p)
+	}
 
 	router := gin.New()
 	router.Use(gin.Recovery())
 
-	nh := simpleondisk.NewSimpleOnDiskRaft(RaftNodePeers, RaftClusterIDs)
+	nh := simpleondisk.NewSimpleOnDiskRaft(peers, raftClusterIDs)
 
 	engine := &Engine{
 		nodeID:      nodeID,
-		raftDataDir: RaftDataDir,
+		raftDataDir: raftDataDir,
 		router:      router,
 		server: &http.Server{
-			Addr:         fmt.Sprintf("0.0.0.0:%s", port), //"9080"
+			Addr:         fmt.Sprintf("0.0.0.0:%d", httpPort),
 			Handler:      router,
 			ReadTimeout:  20 * time.Second,
 			WriteTimeout: 40 * time.Second,
@@ -59,9 +61,11 @@ func NewEngine(nodeID uint64, port string) *Engine {
 
 func (engine *Engine) Start() {
 
-	engine.nh.Start(engine.raftDataDir, engine.nodeID, "", false)
+	if err := engine.nh.Start(engine.raftDataDir, engine.nodeID, "", false); err != nil {
+		log.Fatalf("start raft failed: %v", err)
+	}
 
-	if err := engine.server.ListenAndServe(); err != nil {
+	if err := engine.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err.Error())
 	}
 }
@@ -73,7 +77,9 @@ func (engine *Engine) Stop() {
 		}
 	}
 
-	engine.nh.Stop()
+	if engine.nh != nil {
+		engine.nh.Stop()
+	}
 }
 
 func (engine *Engine) Query(c *gin.Context) {
@@ -106,7 +112,10 @@ func (engine *Engine) Upsert(c *gin.Context) {
 		return
 	}
 
-	engine.nh.Write(key, hashKey, int(val))
+	if err := engine.nh.Write(key, hashKey, int(val)); err != nil {
+		SetStrResp(http.StatusBadRequest, -1, err.Error(), "", c)
+		return
+	}
 
 	SetStrResp(http.StatusOK, 0, "", "OK", c)
 }

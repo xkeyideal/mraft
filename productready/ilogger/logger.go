@@ -65,9 +65,11 @@ func NewRaftLogger(logDir, pkgName string, level zapcore.Level) *raftLogger {
 }
 
 func RaftFactory(pkgName string) logger.ILogger {
+	name := fmt.Sprintf("dragonboat-%s.log", pkgName)
 	return &raftLogger{
 		logDir:  Lo.logDir,
 		pkgName: pkgName,
+		log:     zlog.NewLogger(filepath.Join(Lo.logDir, name), zapcore.InfoLevel, false),
 	}
 }
 

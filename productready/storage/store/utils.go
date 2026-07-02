@@ -62,6 +62,12 @@ func GetPebbleDBDir(dir string) (string, error) {
 	return dbdir, nil
 }
 
+// IsInitialized reports whether the state machine data directory has already
+// been initialized (i.e. it is a restart rather than a first-time start).
+func IsInitialized(dir string) bool {
+	return !isNewRun(dir)
+}
+
 // functions below are used to manage the current data directory of Pebble DB.
 func isNewRun(dir string) bool {
 	fp := filepath.Join(dir, currentDBFilename)

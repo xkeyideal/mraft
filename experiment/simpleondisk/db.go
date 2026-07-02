@@ -5,7 +5,7 @@ import (
 	"crypto/md5"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -13,11 +13,16 @@ import (
 	"time"
 )
 
-const (
-	mraftDBDirName     string = "/Volumes/ST1000/mraft-simplerocksdb"
+var (
+	mraftDBDirName     string = "./raftdata-simpleondisk"
 	currentDBFilename  string = "current"
 	updatingDBFilename string = "current.updating"
 )
+
+// SetDBDir sets the root directory used by the on-disk state machine.
+func SetDBDir(dir string) {
+	mraftDBDirName = dir
+}
 
 func isNewRun(dir string) bool {
 	fp := filepath.Join(dir, currentDBFilename)
@@ -50,7 +55,7 @@ func getCurrentDBDirName(dir string) (string, error) {
 	}
 	defer f.Close()
 
-	data, err := ioutil.ReadAll(f)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return "", err
 	}
@@ -77,13 +82,20 @@ func cleanupNodeDataDir(dir string) error {
 		return err
 	}
 
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
 
 	for _, fi := range files {
 		if !fi.IsDir() {
+			continue
+		}
+		info, err := fi.Info()
+		if err != nil {
+			continue
+		}
+		if !info.IsDir() {
 			continue
 		}
 		//fmt.Printf("dbdir %s, fi.name %s, dir %s\n", dbdir, fi.Name(), dir)
@@ -199,7 +211,7 @@ func SyncDir(dir string) (err error) {
 		return err
 	}
 	if !fileInfo.IsDir() {
-		panic("not a dir")
+		return fmt.Errorf("not a directory: %s", dir)
 	}
 	df, err := os.Open(filepath.Clean(dir))
 	if err != nil {

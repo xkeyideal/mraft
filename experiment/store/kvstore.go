@@ -45,6 +45,9 @@ func (db *Store) LookupAppliedIndex(key []byte) (uint64, error) {
 	defer db.mu.RUnlock()
 
 	val, closer, err := db.db.Get(key)
+	if err == pebble.ErrNotFound {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -82,12 +85,18 @@ func (db *Store) Lookup(key []byte) (*RaftAttribute, error) {
 	}
 
 	attr := &RaftAttribute{}
-	err = attr.Unmarshal(data)
+	if err := attr.Unmarshal(data); err != nil {
+		return nil, err
+	}
 
-	return attr, err
+	return attr, nil
 }
 
 func (db *Store) NALookup(key []byte) ([]byte, error) {
+	if db.closed.Load() {
+		return nil, pebble.ErrClosed
+	}
+
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -120,15 +129,15 @@ func (db *Store) GetRo() *pebble.IterOptions {
 }
 
 func (db *Store) Write(b *pebble.Batch) error {
-	return b.Commit(db.wo)
+	return b.Commit(db.syncwo)
 }
 
-func (db *Store) SetKv(key, val []byte) {
-	db.db.Set(key, val, db.wo)
+func (db *Store) SetKv(key, val []byte) error {
+	return db.db.Set(key, val, db.syncwo)
 }
 
-func (db *Store) Flush() {
-	db.db.Flush()
+func (db *Store) Flush() error {
+	return db.db.Flush()
 }
 
 func (db *Store) NewSnapshot() *pebble.Snapshot {
@@ -156,13 +165,18 @@ func (db *Store) Close() error {
 
 	db.closed.Store(true) // set pebbledb closed
 
+	var err error
 	if db.db != nil {
-		db.db.Flush()
-		db.db.Close()
+		if ferr := db.db.Flush(); ferr != nil && err == nil {
+			err = ferr
+		}
+		if cerr := db.db.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
 		db.db = nil
 	}
 
-	return nil
+	return err
 }
 
 type PebbleDBConfig struct {
@@ -230,6 +244,7 @@ func openPebbleDB(config PebbleDBConfig, dir string) (*pebble.DB, error) {
 	}
 
 	cache := pebble.NewCache(config.KVLRUCacheSize)
+	defer cache.Unref()
 	opts := &pebble.Options{
 		BytesPerSync:                config.KVBytesPerSync,
 		Levels:                      lopts,
@@ -250,7 +265,6 @@ func openPebbleDB(config PebbleDBConfig, dir string) (*pebble.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	cache.Unref()
 
 	return db, nil
 }
