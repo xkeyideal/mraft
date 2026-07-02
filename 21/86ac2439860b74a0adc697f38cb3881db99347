@@ -1,0 +1,16 @@
+productready/ilogger/logger.go
+  h_f85060ac8af383 55,69-74,78-79,101-104
+logger/zaplog.go
+  h_f85060ac8af383 41,81-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "2186ac2439860b74a0adc697f38cb3881db99347",
+  "prompts": {},
+  "humans": {
+    "h_f85060ac8af383": {
+      "author": "xkeyideal <myselfxukai@163.com>"
+    }
+  }
+}
